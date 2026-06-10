@@ -35,6 +35,19 @@ h1{font-family:Fraunces,serif;font-size:clamp(2.1rem,5.5vw,4.9rem);line-height:.
 .stat{padding:1rem 1.25rem}
 .stat strong{display:block;font-size:1.45rem}
 .stat span{color:var(--muted);font-size:.75rem;font-weight:800;text-transform:uppercase}
+.room{display:grid;grid-template-columns:minmax(0,1fr) minmax(320px,.72fr);gap:1rem;max-width:1180px;margin:0 auto;padding:1rem 1.25rem}
+.desk,.gate{border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:1rem;box-shadow:0 12px 28px rgba(16,24,40,.05)}
+.desk h2,.gate h2{font-family:Fraunces,serif;font-size:1.45rem;margin-bottom:.45rem}
+.desk p,.gate p{color:var(--muted);font-size:.84rem}
+.diligence-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:.55rem;margin-top:1rem}
+.file{border:1px solid var(--line);border-radius:8px;background:#fff;padding:.72rem;min-height:108px}
+.file strong{display:block;font-size:.78rem;margin-bottom:.3rem}
+.file span{display:block;color:var(--muted);font-size:.7rem}
+.bar{height:8px;border-radius:99px;background:#ede9fe;margin-top:.7rem;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--accent)}
+.gate-list{display:grid;gap:.55rem;margin-top:1rem}
+.gate-row{display:flex;justify-content:space-between;gap:.8rem;border:1px solid var(--line);border-radius:8px;background:var(--paper);padding:.62rem;font-size:.78rem;font-weight:800}
+.gate-row span:last-child{color:var(--accent)}
 .toolbar{display:flex;flex-wrap:wrap;gap:.45rem;max-width:1180px;margin:0 auto;padding:1rem 1.25rem}
 .filter{border:1px solid var(--line);border-radius:999px;background:var(--panel);color:var(--muted);cursor:pointer;font:700 .75rem Manrope,system-ui,sans-serif;padding:.44rem .75rem}
 .filter.active{background:var(--accent);border-color:var(--accent);color:white}
@@ -60,7 +73,9 @@ h1{font-family:Fraunces,serif;font-size:clamp(2.1rem,5.5vw,4.9rem);line-height:.
 .panel ul{display:grid;gap:.45rem;list-style:none}
 .panel li:before{content:"";display:inline-block;width:7px;height:7px;background:var(--accent);border-radius:99px;margin-right:.45rem}
 footer{border-top:1px solid var(--line);background:var(--panel);color:var(--muted);font-size:.75rem;padding:1rem;text-align:center}
+@media(max-width:940px){.room{grid-template-columns:1fr}.diligence-grid{grid-template-columns:1fr 1fr}}
 @media(max-width:840px){.hero-inner{grid-template-columns:1fr}.strip-inner{grid-template-columns:repeat(2,1fr)}.section-inner{grid-template-columns:1fr}nav{display:none}}
+@media(max-width:560px){.diligence-grid{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -102,6 +117,28 @@ footer{border-top:1px solid var(--line);background:var(--panel);color:var(--mute
       <div class="stat"><strong>72</strong><span>top readiness</span></div>
       <div class="stat"><strong>1</strong><span>free pipeline</span></div>
     </div>
+  </section>
+
+  <section class="room" aria-label="Diligence room">
+    <div class="desk">
+      <h2>Diligence room</h2>
+      <p>Every pro idea should feel like opening a serious deal folder: what is proven, what is weak, what can be built, and who made the opportunity sharper.</p>
+      <div class="diligence-grid">
+        <div class="file"><strong>Research memo</strong><span>Customer, market, competitors, timing.</span><div class="bar"><i style="width:78%"></i></div></div>
+        <div class="file"><strong>Prototype packet</strong><span>Clickable demo, MVP scope, build estimate.</span><div class="bar"><i style="width:52%"></i></div></div>
+        <div class="file"><strong>Pitch room</strong><span>Deck, narrative, risks, ask, next checks.</span><div class="bar"><i style="width:46%"></i></div></div>
+      </div>
+    </div>
+    <aside class="gate">
+      <h2>Pro gate</h2>
+      <p>Raw cleverness is not enough. A dossier earns its place by surviving pressure.</p>
+      <div class="gate-list">
+        <div class="gate-row"><span>Customer clarity</span><span>required</span></div>
+        <div class="gate-row"><span>Evidence quality</span><span>required</span></div>
+        <div class="gate-row"><span>Risk honesty</span><span>required</span></div>
+        <div class="gate-row"><span>Builder path</span><span>required</span></div>
+      </div>
+    </aside>
   </section>
 
   <div class="toolbar" id="dossiers">
@@ -174,7 +211,7 @@ buttons.forEach((button) => {
   });
 });
 
-fetch('/registry.json')
+fetch('registry.json')
   .then((response) => response.json())
   .then((data) => {
     dossiers = data.dossiers || [];
@@ -186,4 +223,3 @@ fetch('/registry.json')
 </script>
 </body>
 </html>
-
