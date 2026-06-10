@@ -1,6 +1,8 @@
 // Related Dossiers - ProIdeaStore
 (function () {
-  fetch('/registry.json')
+  const registryUrl = new URL('registry.json', document.currentScript ? document.currentScript.src : window.location.href);
+
+  fetch(registryUrl)
     .then((response) => response.json())
     .then((data) => {
       const dossiers = (data.dossiers || []).slice(0, 3);
@@ -15,7 +17,7 @@
           #related-dossiers a{border:1px solid #e4e7ec;border-radius:8px;color:#101018;padding:.42rem .65rem;text-decoration:none;white-space:nowrap;font-size:.78rem;font-weight:800}
         </style>
         <strong>Related</strong>
-        ${dossiers.map((dossier) => `<a href="/dossiers/${dossier.id}/">${dossier.name}</a>`).join('')}
+        ${dossiers.map((dossier) => `<a href="dossiers/${dossier.id}/">${dossier.name}</a>`).join('')}
       `;
       document.body.appendChild(bar);
     })
