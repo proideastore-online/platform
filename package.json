@@ -11,11 +11,13 @@
   "scripts": {
     "dev": "pnpm --filter @pis/worker dev",
     "deploy": "pnpm --filter @pis/worker run deploy",
+    "test": "pnpm --filter @pis/worker test",
     "typecheck": "pnpm --filter @pis/worker typecheck",
     "db:migrate:local": "pnpm --filter @pis/worker db:migrate:local",
     "db:migrate:prod": "pnpm --filter @pis/worker db:migrate:prod"
   },
   "devDependencies": {
-    "typescript": "^5.7.3"
+    "typescript": "^5.7.3",
+    "vitest": "^4.1.8"
   }
 }

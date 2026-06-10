@@ -181,6 +181,15 @@ const grid = document.querySelector('#dossier-grid');
 const buttons = document.querySelectorAll('.filter');
 let dossiers = [];
 
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
 function parseAssets(dossier) {
   if (Array.isArray(dossier.assets)) return dossier.assets;
   try {
@@ -197,21 +206,21 @@ function render(status = 'all') {
     .map((dossier) => `
       <article class="card">
         <div class="topline">
-          <span class="status">${dossier.status}</span>
-          <span class="score">${dossier.readiness}</span>
+          <span class="status">${escapeHtml(dossier.status)}</span>
+          <span class="score">${escapeHtml(dossier.readiness)}</span>
         </div>
-        <h3>${dossier.title || dossier.name}</h3>
-        <div class="type">${dossier.type}</div>
-        <p>${dossier.summary}</p>
+        <h3>${escapeHtml(dossier.title || dossier.name)}</h3>
+        <div class="type">${escapeHtml(dossier.type)}</div>
+        <p>${escapeHtml(dossier.summary)}</p>
         <div class="memo">
-          <div><strong>Buyer</strong><span>${dossier.buyer}</span></div>
-          <div><strong>Evidence</strong><span>${dossier.evidence}</span></div>
-          <div><strong>Missing</strong><span>${dossier.missing}</span></div>
+          <div><strong>Buyer</strong><span>${escapeHtml(dossier.buyer)}</span></div>
+          <div><strong>Evidence</strong><span>${escapeHtml(dossier.evidence)}</span></div>
+          <div><strong>Missing</strong><span>${escapeHtml(dossier.missing)}</span></div>
         </div>
         <div class="assets">
-          ${parseAssets(dossier).map((asset) => `<span class="asset">${asset}</span>`).join('')}
+          ${parseAssets(dossier).map((asset) => `<span class="asset">${escapeHtml(asset)}</span>`).join('')}
         </div>
-        <div class="card-footer"><a class="dossier-link" href="/dossiers/${dossier.id}/">Open dossier</a></div>
+        <div class="card-footer"><a class="dossier-link" href="/dossiers/${encodeURIComponent(dossier.id)}/">Open dossier</a></div>
       </article>
     `)
     .join('');
