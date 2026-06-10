@@ -12,11 +12,13 @@
     "dev": "pnpm --filter @pis/worker dev",
     "deploy": "pnpm --filter @pis/worker run deploy",
     "test": "pnpm --filter @pis/worker test",
+    "test:e2e": "playwright test",
     "typecheck": "pnpm --filter @pis/worker typecheck",
     "db:migrate:local": "pnpm --filter @pis/worker db:migrate:local",
     "db:migrate:prod": "pnpm --filter @pis/worker db:migrate:prod"
   },
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
     "typescript": "^5.7.3",
     "vitest": "^4.1.8"
   }
