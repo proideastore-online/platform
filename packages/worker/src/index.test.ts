@@ -109,6 +109,7 @@ describe('ProIdeaStore worker', () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get('content-type')).toContain('text/html');
+    expect(response.headers.get('content-security-policy')).toContain("default-src 'self'");
     expect(html).toContain('Curated opportunity dossier');
     expect(html).toContain('ASX Filings Analyst');
     expect(html).toContain('research memo');
@@ -144,5 +145,22 @@ describe('ProIdeaStore worker', () => {
     expect(response.status).toBe(201);
     expect(data.dossier).toBe('serious-opportunity');
     expect(testEnv.DB.inserted[0][5]).toBe(100);
+  });
+
+  it('rejects invalid ids and writes to missing dossiers', async () => {
+    const invalid = await worker.fetch(new Request('https://pis.test/api/dossiers/not%2Fvalid'), env());
+    const missingNote = await worker.fetch(
+      new Request('https://pis.test/api/dossiers/missing-dossier/notes', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ body: 'Useful note.' }),
+      }),
+      env(),
+    );
+
+    expect(invalid.status).toBe(400);
+    expect(await invalid.json()).toEqual({ error: 'invalid dossier id' });
+    expect(missingNote.status).toBe(404);
+    expect(await missingNote.json()).toEqual({ error: 'dossier not found' });
   });
 });

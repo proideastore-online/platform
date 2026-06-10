@@ -10,11 +10,17 @@ const JSON_HEADERS = {
 };
 
 const SECURITY_HEADERS: Record<string, string> = {
+  'Content-Security-Policy':
+    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'",
   'X-Content-Type-Options': 'nosniff',
   'X-Frame-Options': 'SAMEORIGIN',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
   'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
 };
+
+const DOSSIER_STATUSES = new Set(['early', 'concept', 'diligence', 'prototype', 'ready']);
+const INTEREST_TYPES = new Set(['watch', 'build', 'fund', 'advise']);
+const GRADUATION_TARGETS = new Set(['proappstore', 'progamestore', 'prowebstore', 'proagentstore']);
 
 function json(data: unknown, init: ResponseInit = {}) {
   return new Response(JSON.stringify(data), {
@@ -39,6 +45,15 @@ function slug(input: string) {
     .slice(0, 64);
 }
 
+function pathId(input: string) {
+  try {
+    const decoded = decodeURIComponent(input);
+    return /^[a-z0-9][a-z0-9-]{0,80}$/.test(decoded) ? decoded : '';
+  } catch {
+    return '';
+  }
+}
+
 function escapeHtml(value: unknown) {
   return String(value ?? '')
     .replaceAll('&', '&amp;')
@@ -46,6 +61,17 @@ function escapeHtml(value: unknown) {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;');
+}
+
+function clampNumber(value: unknown, fallback: number, min: number, max: number) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, Math.trunc(parsed)));
+}
+
+function enumValue(value: unknown, allowed: Set<string>, fallback: string) {
+  const normalized = slug(String(value || ''));
+  return allowed.has(normalized) ? normalized : fallback;
 }
 
 function parseStringArray(value: unknown) {
@@ -107,6 +133,13 @@ async function dossierById(env: Env, dossierId: string) {
   )
     .bind(dossierId)
     .first<Record<string, unknown>>();
+}
+
+async function uniqueDossierId(env: Env, title: string) {
+  const base = slug(title) || id('dossier');
+  const existing = await env.DB.prepare('SELECT id FROM dossiers WHERE id = ?').bind(base).first<{ id: string }>();
+  if (!existing) return base;
+  return `${base.slice(0, 52)}-${crypto.randomUUID().slice(0, 8)}`;
 }
 
 async function renderDossierPage(env: Env, request: Request, dossierId: string) {
@@ -201,7 +234,9 @@ async function handleApi(request: Request, env: Env, url: URL) {
 
   const dossierMatch = url.pathname.match(/^\/api\/dossiers\/([^/]+)$/);
   if (dossierMatch && request.method === 'GET') {
-    const dossier = await dossierById(env, dossierMatch[1]);
+    const dossierId = pathId(dossierMatch[1]);
+    if (!dossierId) return bad('invalid dossier id', 400);
+    const dossier = await dossierById(env, dossierId);
     if (!dossier) return bad('dossier not found', 404);
     return json({ dossier, url: `/dossiers/${dossier.id}/` });
   }
@@ -212,7 +247,7 @@ async function handleApi(request: Request, env: Env, url: URL) {
     const summary = String(input.summary || '').trim();
     if (title.length < 3 || summary.length < 20) return bad('title and summary are required');
     const profileId = await profileFor(request, env);
-    const dossierId = slug(title) || id('dossier');
+    const dossierId = await uniqueDossierId(env, title);
     await env.DB.prepare(
       `INSERT INTO dossiers
        (id, title, summary, type, status, readiness, buyer, evidence, missing, assets_json, source_idea_id, created_by)
@@ -223,8 +258,8 @@ async function handleApi(request: Request, env: Env, url: URL) {
         title.slice(0, 140),
         summary.slice(0, 1200),
         String(input.type || 'opportunity').slice(0, 60),
-        String(input.status || 'early').slice(0, 40),
-        Math.max(0, Math.min(100, Number(input.readiness || 0))),
+        enumValue(input.status, DOSSIER_STATUSES, 'early'),
+        clampNumber(input.readiness, 0, 0, 100),
         String(input.buyer || '').slice(0, 500),
         String(input.evidence || '').slice(0, 800),
         String(input.missing || '').slice(0, 800),
@@ -238,56 +273,67 @@ async function handleApi(request: Request, env: Env, url: URL) {
 
   const notesMatch = url.pathname.match(/^\/api\/dossiers\/([^/]+)\/notes$/);
   if (notesMatch && request.method === 'GET') {
+    const dossierId = pathId(notesMatch[1]);
+    if (!dossierId) return bad('invalid dossier id', 400);
     const rows = await env.DB.prepare(
       `SELECT n.id, n.kind, n.body, n.created_at, p.handle, p.display_name, p.role
        FROM diligence_notes n JOIN profiles p ON p.id = n.profile_id
        WHERE n.dossier_id = ?
        ORDER BY n.created_at DESC`,
     )
-      .bind(notesMatch[1])
+      .bind(dossierId)
       .all();
     return json({ notes: rows.results || [] });
   }
 
   if (notesMatch && request.method === 'POST') {
+    const dossierId = pathId(notesMatch[1]);
+    if (!dossierId) return bad('invalid dossier id', 400);
+    if (!(await dossierById(env, dossierId))) return bad('dossier not found', 404);
     const input = await bodyJson(request);
     const body = String(input.body || '').trim();
     if (body.length < 3) return bad('note body is required');
     const profileId = await profileFor(request, env);
     await env.DB.prepare('INSERT INTO diligence_notes (id, dossier_id, profile_id, kind, body) VALUES (?, ?, ?, ?, ?)')
-      .bind(id('note'), notesMatch[1], profileId, String(input.kind || 'note').slice(0, 40), body.slice(0, 2400))
+      .bind(id('note'), dossierId, profileId, String(input.kind || 'note').slice(0, 40), body.slice(0, 2400))
       .run();
     await env.DB.prepare('UPDATE dossiers SET updated_at = CURRENT_TIMESTAMP WHERE id = ?')
-      .bind(notesMatch[1])
+      .bind(dossierId)
       .run();
     return json({ ok: true }, { status: 201 });
   }
 
   const interestMatch = url.pathname.match(/^\/api\/dossiers\/([^/]+)\/interest$/);
   if (interestMatch && request.method === 'POST') {
+    const dossierId = pathId(interestMatch[1]);
+    if (!dossierId) return bad('invalid dossier id', 400);
+    if (!(await dossierById(env, dossierId))) return bad('dossier not found', 404);
     const input = await bodyJson(request);
     const type = String(input.type || '').trim();
-    if (!['watch', 'build', 'fund', 'advise'].includes(type)) {
+    if (!INTEREST_TYPES.has(type)) {
       return bad('interest type must be watch, build, fund, or advise');
     }
     const profileId = await profileFor(request, env);
     await env.DB.prepare('INSERT OR IGNORE INTO interest_signals (id, dossier_id, profile_id, type, note) VALUES (?, ?, ?, ?, ?)')
-      .bind(id('interest'), interestMatch[1], profileId, type, String(input.note || '').slice(0, 800))
+      .bind(id('interest'), dossierId, profileId, type, String(input.note || '').slice(0, 800))
       .run();
     return json({ ok: true }, { status: 201 });
   }
 
   const graduationMatch = url.pathname.match(/^\/api\/dossiers\/([^/]+)\/graduations$/);
   if (graduationMatch && request.method === 'POST') {
+    const dossierId = pathId(graduationMatch[1]);
+    if (!dossierId) return bad('invalid dossier id', 400);
+    if (!(await dossierById(env, dossierId))) return bad('dossier not found', 404);
     const input = await bodyJson(request);
     const targetStore = String(input.targetStore || '').trim();
-    if (!['proappstore', 'progamestore', 'prowebstore', 'proagentstore'].includes(targetStore)) {
+    if (!GRADUATION_TARGETS.has(targetStore)) {
       return bad('targetStore must be a known pro store');
     }
     await env.DB.prepare('INSERT INTO graduation_events (id, dossier_id, target_store, status, note) VALUES (?, ?, ?, ?, ?)')
       .bind(
         id('graduation'),
-        graduationMatch[1],
+        dossierId,
         targetStore,
         String(input.status || 'proposed').slice(0, 40),
         String(input.note || '').slice(0, 1000),
@@ -313,7 +359,9 @@ export default {
     const dossierPageMatch = url.pathname.match(/^\/dossiers\/([^/]+)\/?$/);
     if (dossierPageMatch) {
       try {
-        return await renderDossierPage(env, request, dossierPageMatch[1]);
+        const dossierId = pathId(dossierPageMatch[1]);
+        if (!dossierId) return new Response('Dossier not found', { status: 404, headers: SECURITY_HEADERS });
+        return await renderDossierPage(env, request, dossierId);
       } catch (error) {
         return json({ error: error instanceof Error ? error.message : 'internal error' }, { status: 500 });
       }
