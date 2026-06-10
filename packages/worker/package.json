@@ -1,0 +1,18 @@
+{
+  "name": "@pis/worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "db:migrate:local": "wrangler d1 migrations apply proideastore --local",
+    "db:migrate:prod": "wrangler d1 migrations apply proideastore --remote"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250501.0",
+    "typescript": "^5.7.3",
+    "wrangler": "^4.0.0"
+  }
+}
+

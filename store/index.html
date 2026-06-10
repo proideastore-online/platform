@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>ProIdeaStore - Opportunity Dossiers</title>
 <meta name="description" content="ProIdeaStore curates mature ideas into investor-ready opportunity dossiers with research, prototype scope, risk memos, and contributor history.">
-<link rel="canonical" href="https://proideastore-online.github.io/platform/">
+<link rel="canonical" href="https://proideastore.serge-the-dev.workers.dev/">
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,700;9..144,800&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
@@ -84,7 +84,7 @@ footer{border-top:1px solid var(--line);background:var(--panel);color:var(--mute
   <nav>
     <a href="#dossiers">Dossiers</a>
     <a href="#model">Model</a>
-    <a href="https://freeideastore-online.github.io/platform/">FreeIdeaStore</a>
+    <a href="https://freeideastore.serge-the-dev.workers.dev">FreeIdeaStore</a>
     <a href="https://openfrontier.pages.dev">Open Frontier</a>
   </nav>
 </header>
@@ -187,7 +187,7 @@ function render(status = 'all') {
           <span class="status">${dossier.status}</span>
           <span class="score">${dossier.readiness}</span>
         </div>
-        <h3>${dossier.name}</h3>
+        <h3>${dossier.title || dossier.name}</h3>
         <div class="type">${dossier.type}</div>
         <p>${dossier.summary}</p>
         <div class="memo">
@@ -196,7 +196,7 @@ function render(status = 'all') {
           <div><strong>Missing</strong><span>${dossier.missing}</span></div>
         </div>
         <div class="assets">
-          ${dossier.assets.map((asset) => `<span class="asset">${asset}</span>`).join('')}
+          ${(Array.isArray(dossier.assets) ? dossier.assets : JSON.parse(dossier.assets_json || '[]')).map((asset) => `<span class="asset">${asset}</span>`).join('')}
         </div>
       </article>
     `)
@@ -211,14 +211,18 @@ buttons.forEach((button) => {
   });
 });
 
-fetch('registry.json')
-  .then((response) => response.json())
+fetch('/api/dossiers')
+  .then((response) => {
+    if (!response.ok) throw new Error('api unavailable');
+    return response.json();
+  })
+  .catch(() => fetch('registry.json').then((response) => response.json()))
   .then((data) => {
     dossiers = data.dossiers || [];
     render();
   })
   .catch(() => {
-    grid.innerHTML = '<article class="card"><h3>Registry unavailable</h3><p>Dossier data could not be loaded.</p></article>';
+    grid.innerHTML = '<article class="card"><h3>Dossiers unavailable</h3><p>The collaboration API could not be loaded.</p></article>';
   });
 </script>
 </body>

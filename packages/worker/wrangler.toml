@@ -1,0 +1,13 @@
+name = "proideastore"
+main = "src/index.ts"
+compatibility_date = "2025-05-01"
+workers_dev = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "proideastore"
+database_id = "503b0125-b2b5-48b0-be47-f0603bc4bfed"
+
+[assets]
+directory = "../../store"
+binding = "ASSETS"

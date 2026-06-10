@@ -1,0 +1,21 @@
+{
+  "name": "@pis/platform",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "packageManager": "pnpm@10.30.3",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @pis/worker dev",
+    "deploy": "pnpm --filter @pis/worker run deploy",
+    "typecheck": "pnpm --filter @pis/worker typecheck",
+    "db:migrate:local": "pnpm --filter @pis/worker db:migrate:local",
+    "db:migrate:prod": "pnpm --filter @pis/worker db:migrate:prod"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3"
+  }
+}
