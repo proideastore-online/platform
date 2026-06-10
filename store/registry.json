@@ -1,0 +1,55 @@
+{
+  "dossiers": [
+    {
+      "id": "asx-filings-analyst",
+      "name": "ASX Filings Analyst",
+      "readiness": 72,
+      "type": "research-saas",
+      "status": "diligence",
+      "summary": "A citation-first ASX company report analyst that produces weekly valuation watchlists from public filings and licensed market data.",
+      "buyer": "Australian retail investors and small research teams.",
+      "evidence": "Competitor review complete; public-source wedge identified; regulatory risk mapped.",
+      "missing": "Manual pilot with paying or high-intent users.",
+      "assets": ["research memo", "MVP scope", "risk memo"]
+    },
+    {
+      "id": "parent-volleyball-community",
+      "name": "Parent Volleyball Community",
+      "readiness": 64,
+      "type": "community-app",
+      "status": "prototype",
+      "summary": "A team-centered parent coordination app focused on communication, attendance, fixtures, and lightweight community support.",
+      "buyer": "Local clubs, team managers, and parent groups.",
+      "evidence": "Prototype direction and competitor comparison exist.",
+      "missing": "Club pilot and weekly retention data.",
+      "assets": ["prototype", "competitor memo", "pilot plan"]
+    },
+    {
+      "id": "idea-reputation-engine",
+      "name": "Idea Reputation Engine",
+      "readiness": 58,
+      "type": "platform",
+      "status": "concept",
+      "summary": "A reputation layer that credits people for critiques, pivots, research, prototypes, and kill signals across the idea lifecycle.",
+      "buyer": "Open Frontier contributors, builders, founders, and investors.",
+      "evidence": "Fits the existing app/game store people-as-product model.",
+      "missing": "Badge taxonomy and anti-spam mechanics.",
+      "assets": ["product thesis", "lifecycle map"]
+    },
+    {
+      "id": "school-transport-trust-layer",
+      "name": "School Transport Trust Layer",
+      "readiness": 41,
+      "type": "local-services",
+      "status": "early",
+      "summary": "A trust and coordination layer for parents evaluating safe transport options for young children.",
+      "buyer": "Parents, schools, transport operators, and local service coordinators.",
+      "evidence": "Need area identified; risk profile documented.",
+      "missing": "Regulatory diligence and parent interviews.",
+      "assets": ["problem memo", "risk memo"]
+    }
+  ],
+  "statuses": ["early", "concept", "diligence", "prototype"],
+  "assetTypes": ["research memo", "MVP scope", "risk memo", "prototype", "pitch deck", "pilot plan"]
+}
+
