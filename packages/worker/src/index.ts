@@ -48,6 +48,15 @@ function escapeHtml(value: unknown) {
     .replaceAll("'", '&#39;');
 }
 
+function parseStringArray(value: unknown) {
+  try {
+    const parsed = typeof value === 'string' ? JSON.parse(value) : value;
+    return Array.isArray(parsed) ? parsed.map((item) => String(item)).slice(0, 20) : [];
+  } catch {
+    return [];
+  }
+}
+
 async function bodyJson(request: Request) {
   try {
     return (await request.json()) as Record<string, unknown>;
@@ -112,7 +121,7 @@ async function renderDossierPage(env: Env, request: Request, dossierId: string) 
   )
     .bind(dossierId)
     .all<Record<string, string>>();
-  const assets = JSON.parse(String(dossier.assets_json || '[]')) as string[];
+  const assets = parseStringArray(dossier.assets_json);
   const page = `<!DOCTYPE html>
 <html lang="en">
 <head>

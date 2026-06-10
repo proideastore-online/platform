@@ -181,6 +181,16 @@ const grid = document.querySelector('#dossier-grid');
 const buttons = document.querySelectorAll('.filter');
 let dossiers = [];
 
+function parseAssets(dossier) {
+  if (Array.isArray(dossier.assets)) return dossier.assets;
+  try {
+    const parsed = JSON.parse(dossier.assets_json || '[]');
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
 function render(status = 'all') {
   grid.innerHTML = dossiers
     .filter((dossier) => status === 'all' || dossier.status === status)
@@ -199,7 +209,7 @@ function render(status = 'all') {
           <div><strong>Missing</strong><span>${dossier.missing}</span></div>
         </div>
         <div class="assets">
-          ${(Array.isArray(dossier.assets) ? dossier.assets : JSON.parse(dossier.assets_json || '[]')).map((asset) => `<span class="asset">${asset}</span>`).join('')}
+          ${parseAssets(dossier).map((asset) => `<span class="asset">${asset}</span>`).join('')}
         </div>
         <div class="card-footer"><a class="dossier-link" href="/dossiers/${dossier.id}/">Open dossier</a></div>
       </article>
