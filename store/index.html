@@ -65,6 +65,9 @@ h1{font-family:Fraunces,serif;font-size:clamp(2.1rem,5.5vw,4.9rem);line-height:.
 .memo span{display:block;color:var(--muted);font-size:.78rem}
 .assets{display:flex;flex-wrap:wrap;gap:.35rem;margin-top:auto;padding-top:1rem}
 .asset{border-radius:999px;background:#f2f4f7;color:#344054;font-size:.68rem;font-weight:800;padding:.26rem .52rem}
+.card-footer{display:flex;justify-content:flex-end;margin-top:.85rem}
+.dossier-link{display:inline-flex;align-items:center;border:1px solid var(--accent);border-radius:8px;background:var(--accent);color:white;padding:.5rem .65rem;font-size:.72rem;font-weight:900}
+.dossier-link:hover{background:#6d28d9;border-color:#6d28d9}
 .section{border-top:1px solid var(--line);background:var(--panel);padding:2rem 1.25rem}
 .section-inner{max-width:1180px;margin:0 auto;display:grid;grid-template-columns:1fr 1fr;gap:1.2rem}
 .panel{border:1px solid var(--line);border-radius:8px;background:var(--paper);padding:1rem}
@@ -198,6 +201,7 @@ function render(status = 'all') {
         <div class="assets">
           ${(Array.isArray(dossier.assets) ? dossier.assets : JSON.parse(dossier.assets_json || '[]')).map((asset) => `<span class="asset">${asset}</span>`).join('')}
         </div>
+        <div class="card-footer"><a class="dossier-link" href="/dossiers/${dossier.id}/">Open dossier</a></div>
       </article>
     `)
     .join('');

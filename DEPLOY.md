@@ -2,6 +2,8 @@
 
 ProIdeaStore is hosted on Cloudflare Workers with Worker Assets and D1.
 
+ProIdeaStore is intentionally the heavier curated layer. FreeIdeaStore should keep raw ideas cheap; promoted ideas become ProIdeaStore dossiers and can later receive full generated books, research packets, prototypes, and pitch assets.
+
 ## Live
 
 https://proideastore.serge-the-dev.workers.dev
@@ -35,4 +37,3 @@ When the zone exists:
 ## Doppler
 
 The Doppler workspace is currently at the 10-project limit, so there is no dedicated `pis` project yet. Deployment currently uses the existing Cloudflare credentials from the `pas` Doppler project.
-
