@@ -3,6 +3,23 @@ interface Env {
   ASSETS: Fetcher;
 }
 
+type AuthUser = {
+  handle: string;
+  displayName: string;
+  provider: string;
+};
+
+type ContributorRow = {
+  id: string;
+  handle: string;
+  display_name: string;
+  role: string;
+  reputation: number;
+  dossier_count: number;
+  note_count: number;
+  interest_count: number;
+};
+
 const JSON_HEADERS = {
   'Content-Type': 'application/json;charset=UTF-8',
   'Cache-Control': 'no-store',
@@ -21,6 +38,14 @@ const SECURITY_HEADERS: Record<string, string> = {
 const DOSSIER_STATUSES = new Set(['early', 'concept', 'diligence', 'prototype', 'ready']);
 const INTEREST_TYPES = new Set(['watch', 'build', 'fund', 'advise']);
 const GRADUATION_TARGETS = new Set(['proappstore', 'progamestore', 'prowebstore', 'proagentstore']);
+const AUTH_PREFIX = '/.pis/auth';
+const SESSION_COOKIE_NAME = '__Host-pis_session';
+const NONCE_COOKIE_NAME = '__Host-pis_auth_nonce';
+const AUTH_API_BASE = 'https://api.proappstore.online';
+const AUTH_APP_ID = 'proideastore';
+const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
+const NONCE_TTL_SECONDS = 10 * 60;
+const AUTH_PROVIDERS = new Set(['github', 'google']);
 
 function json(data: unknown, init: ResponseInit = {}) {
   return new Response(JSON.stringify(data), {
@@ -91,17 +116,175 @@ async function bodyJson(request: Request) {
   }
 }
 
+function readCookie(header: string | null, name: string) {
+  if (!header) return null;
+  for (const part of header.split(';')) {
+    const [rawName, ...rawValue] = part.trim().split('=');
+    if (rawName !== name) continue;
+    try {
+      return decodeURIComponent(rawValue.join('='));
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+function sameOriginPath(baseUrl: URL, raw: string | null) {
+  if (!raw) return '/';
+  try {
+    const parsed = new URL(raw, baseUrl.origin);
+    if (parsed.origin !== baseUrl.origin) return '/';
+    if (parsed.pathname === AUTH_PREFIX || parsed.pathname.startsWith(`${AUTH_PREFIX}/`)) return '/';
+    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch {
+    return '/';
+  }
+}
+
+function cookie(name: string, value: string, maxAge: number) {
+  return [
+    `${name}=${encodeURIComponent(value)}`,
+    `Max-Age=${maxAge}`,
+    'Path=/',
+    'Secure',
+    'HttpOnly',
+    'SameSite=Lax',
+  ].join('; ');
+}
+
+function clearCookie(name: string) {
+  return `${name}=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Lax`;
+}
+
+function redirect(location: string, status: 302 | 303, cookies: string[] = []) {
+  const headers = new Headers({ Location: location, 'Cache-Control': 'no-store' });
+  for (const item of cookies) headers.append('Set-Cookie', item);
+  return new Response(null, { status, headers });
+}
+
+function methodNotAllowed(allow: string) {
+  return new Response('Method not allowed', {
+    status: 405,
+    headers: { ...SECURITY_HEADERS, Allow: allow, 'Cache-Control': 'no-store' },
+  });
+}
+
+function isSameOriginMutation(request: Request) {
+  const url = new URL(request.url);
+  const origin = request.headers.get('Origin');
+  if (origin && origin !== url.origin) return false;
+  const fetchSite = request.headers.get('Sec-Fetch-Site');
+  if (fetchSite && fetchSite !== 'same-origin' && fetchSite !== 'none') return false;
+  return true;
+}
+
+function normalizeAuthUser(payload: unknown): AuthUser | null {
+  const data = (payload || {}) as Record<string, unknown>;
+  const user = ((data.user || data.profile || data.account || data) || {}) as Record<string, unknown>;
+  const email = String(user.email || '');
+  const rawHandle = String(user.handle || user.login || user.username || email.split('@')[0] || user.name || '');
+  const handle = slug(rawHandle);
+  if (!handle) return null;
+  return {
+    handle,
+    displayName: String(user.displayName || user.display_name || user.name || rawHandle).trim() || handle,
+    provider: String(user.provider || data.provider || 'auth'),
+  };
+}
+
+async function fetchAuthPayload(token: string) {
+  const response = await fetch(`${AUTH_API_BASE}/v1/auth/me`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const text = await response.text();
+  let body: unknown = text;
+  try {
+    body = text ? JSON.parse(text) : {};
+  } catch {
+    body = { error: text };
+  }
+  return { response, body };
+}
+
+async function authUserFor(request: Request) {
+  const token = readCookie(request.headers.get('Cookie'), SESSION_COOKIE_NAME);
+  if (!token) return null;
+  try {
+    const { response, body } = await fetchAuthPayload(token);
+    if (!response.ok) return null;
+    return normalizeAuthUser(body);
+  } catch {
+    return null;
+  }
+}
+
 async function profileFor(request: Request, env: Env) {
-  const raw = request.headers.get('x-idea-handle') || 'guest';
+  const authUser = await authUserFor(request);
+  const raw = authUser?.handle || request.headers.get('x-idea-handle') || 'guest';
   const handle = slug(raw) || 'guest';
   const profileId = `profile-${handle}`;
   await env.DB.prepare(
     `INSERT OR IGNORE INTO profiles (id, handle, display_name, role, reputation)
      VALUES (?, ?, ?, 'contributor', 0)`,
   )
-    .bind(profileId, handle, handle.replace(/-/g, ' '))
+    .bind(profileId, handle, authUser?.displayName || handle.replace(/-/g, ' '))
     .run();
   return profileId;
+}
+
+async function handleAuth(request: Request, url: URL) {
+  if (!url.pathname.startsWith(`${AUTH_PREFIX}/`) && url.pathname !== AUTH_PREFIX) return null;
+
+  if (url.pathname === `${AUTH_PREFIX}/start`) {
+    if (request.method !== 'GET') return methodNotAllowed('GET');
+    const provider = url.searchParams.get('provider') || 'github';
+    if (!AUTH_PROVIDERS.has(provider)) return new Response('unknown provider', { status: 404, headers: SECURITY_HEADERS });
+    const returnPath = sameOriginPath(url, url.searchParams.get('return_to') || '/console/');
+    const nonce = crypto.randomUUID();
+    const callback = new URL(`${AUTH_PREFIX}/callback`, url.origin);
+    callback.searchParams.set('return_to', returnPath);
+    callback.searchParams.set('nonce', nonce);
+    const start = new URL(`/v1/auth/${provider}/start`, AUTH_API_BASE);
+    start.searchParams.set('app_id', AUTH_APP_ID);
+    start.searchParams.set('return_to', callback.toString());
+    start.searchParams.set('response_mode', 'query');
+    return redirect(start.toString(), 302, [cookie(NONCE_COOKIE_NAME, nonce, NONCE_TTL_SECONDS)]);
+  }
+
+  if (url.pathname === `${AUTH_PREFIX}/callback`) {
+    if (request.method !== 'GET') return methodNotAllowed('GET');
+    const returnPath = sameOriginPath(url, url.searchParams.get('return_to') || '/console/');
+    const nonce = url.searchParams.get('nonce');
+    const storedNonce = readCookie(request.headers.get('Cookie'), NONCE_COOKIE_NAME);
+    if (!nonce || nonce !== storedNonce) return redirect(`${url.origin}${returnPath}#auth_error=invalid_state`, 303, [clearCookie(NONCE_COOKIE_NAME)]);
+    const session = url.searchParams.get('session');
+    if (!session) return redirect(`${url.origin}${returnPath}#auth_error=missing_session`, 303, [clearCookie(NONCE_COOKIE_NAME)]);
+    const { response } = await fetchAuthPayload(session);
+    if (!response.ok) return redirect(`${url.origin}${returnPath}#auth_error=invalid_session`, 303, [clearCookie(NONCE_COOKIE_NAME)]);
+    return redirect(`${url.origin}${returnPath}`, 303, [
+      cookie(SESSION_COOKIE_NAME, session, SESSION_TTL_SECONDS),
+      clearCookie(NONCE_COOKIE_NAME),
+    ]);
+  }
+
+  if (url.pathname === `${AUTH_PREFIX}/me`) {
+    if (request.method !== 'GET') return methodNotAllowed('GET');
+    const token = readCookie(request.headers.get('Cookie'), SESSION_COOKIE_NAME);
+    if (!token) return json({ error: 'not signed in' }, { status: 401 });
+    const { response, body } = await fetchAuthPayload(token);
+    const authUser = response.ok ? normalizeAuthUser(body) : null;
+    const headers: Record<string, string> = response.ok ? {} : { 'Set-Cookie': clearCookie(SESSION_COOKIE_NAME) };
+    return json(authUser ? { user: authUser } : body, { status: response.status, headers });
+  }
+
+  if (url.pathname === `${AUTH_PREFIX}/logout`) {
+    if (request.method !== 'POST') return methodNotAllowed('POST');
+    if (!isSameOriginMutation(request)) return new Response('Forbidden', { status: 403, headers: SECURITY_HEADERS });
+    return new Response(null, { status: 204, headers: { 'Set-Cookie': clearCookie(SESSION_COOKIE_NAME), 'Cache-Control': 'no-store' } });
+  }
+
+  return new Response('Not found', { status: 404, headers: SECURITY_HEADERS });
 }
 
 async function listDossiers(env: Env) {
@@ -142,6 +325,128 @@ async function uniqueDossierId(env: Env, title: string) {
   return `${base.slice(0, 52)}-${crypto.randomUUID().slice(0, 8)}`;
 }
 
+async function listContributors(env: Env) {
+  const rows = await env.DB.prepare(
+    `SELECT
+       p.id,
+       p.handle,
+       p.display_name,
+       p.role,
+       p.reputation,
+       COUNT(DISTINCT d.id) AS dossier_count,
+       COUNT(DISTINCT n.id) AS note_count,
+       COUNT(DISTINCT i.id) AS interest_count
+     FROM profiles p
+     LEFT JOIN dossiers d ON d.created_by = p.id
+     LEFT JOIN diligence_notes n ON n.profile_id = p.id
+     LEFT JOIN interest_signals i ON i.profile_id = p.id
+     GROUP BY p.id
+     ORDER BY p.reputation DESC, note_count DESC, dossier_count DESC, p.handle ASC
+     LIMIT 100`,
+  ).all<ContributorRow>();
+  return rows.results || [];
+}
+
+async function contributorByHandle(env: Env, handle: string) {
+  return env.DB.prepare(
+    `SELECT
+       p.id,
+       p.handle,
+       p.display_name,
+       p.role,
+       p.reputation,
+       COUNT(DISTINCT d.id) AS dossier_count,
+       COUNT(DISTINCT n.id) AS note_count,
+       COUNT(DISTINCT i.id) AS interest_count
+     FROM profiles p
+     LEFT JOIN dossiers d ON d.created_by = p.id
+     LEFT JOIN diligence_notes n ON n.profile_id = p.id
+     LEFT JOIN interest_signals i ON i.profile_id = p.id
+     WHERE p.handle = ?
+     GROUP BY p.id`,
+  )
+    .bind(handle)
+    .first<ContributorRow>();
+}
+
+function renderContributorShell(title: string, body: string, request: Request) {
+  return new Response(`<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>${escapeHtml(title)} - ProIdeaStore</title>
+<meta name="description" content="ProIdeaStore contributor reputation, dossier work, diligence notes, interest signals, and graduation history.">
+<link rel="canonical" href="${escapeHtml(new URL(request.url).origin)}${escapeHtml(new URL(request.url).pathname)}">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,700;9..144,800&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}:root{--accent:#6d28d9;--ruby:#be123c;--paper:#f8fafc;--panel:#fff;--ink:#171322;--muted:#667085;--line:#e4e7ec;--dark:#1f1737}
+body{background:var(--paper);color:var(--ink);font-family:Manrope,system-ui,sans-serif;line-height:1.5}a{color:inherit;text-decoration:none}
+header{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:1rem;border-bottom:1px solid var(--line);background:rgba(255,255,255,.94);padding:.7rem 1.25rem;backdrop-filter:blur(14px)}.brand{display:flex;align-items:center;gap:.6rem;font-weight:800}.mark{display:grid;height:34px;width:34px;place-items:center;border-radius:8px;background:var(--dark);color:#ddd6fe;font-weight:900;box-shadow:inset 0 -4px 0 rgba(190,18,60,.9)}.brand span:last-child{font-family:Fraunces,serif}nav{margin-left:auto;display:flex;gap:.9rem;color:var(--muted);font-size:.8rem;font-weight:800}
+.shell{max-width:1120px;margin:0 auto;padding:2rem 1.25rem}.eyebrow{color:var(--accent);font-size:.72rem;font-weight:900;letter-spacing:.12em;text-transform:uppercase}h1{font-family:Fraunces,serif;font-size:clamp(2.1rem,5vw,4.2rem);line-height:.98;margin:.45rem 0 1rem}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:.85rem}.card,.panel{border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:1rem;box-shadow:0 10px 22px rgba(16,24,40,.04)}.card h2{font-size:1rem}.meta{display:flex;flex-wrap:wrap;gap:.35rem;margin:.65rem 0}.pill{border:1px solid var(--line);border-radius:999px;background:#f5f3ff;color:var(--accent);font-size:.68rem;font-weight:900;padding:.22rem .48rem;text-transform:uppercase}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:.45rem;margin-top:.8rem}.stat{border-left:3px solid var(--line);padding-left:.55rem}.stat strong{display:block;font-size:1.05rem}.stat span{color:var(--muted);font-size:.7rem;font-weight:800}.list{display:grid;gap:.55rem;margin-top:1rem}.item{border:1px solid var(--line);border-radius:8px;background:#fbfbff;padding:.75rem}.item strong{display:block}.item span{display:block;color:var(--muted);font-size:.78rem;margin-top:.2rem}@media(max-width:760px){nav{display:none}.stats{grid-template-columns:1fr}}
+</style>
+</head><body><header><a href="/" class="brand"><span class="mark">PI</span><span>ProIdeaStore</span></a><nav><a href="/#dossiers">Dossiers</a><a href="/contributors/">Contributors</a><a href="/console/">Console</a><a href="https://freeideastore.online">FreeIdeaStore</a></nav></header><main class="shell">${body}</main></body></html>`, {
+    headers: { ...SECURITY_HEADERS, 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public, max-age=60' },
+  });
+}
+
+async function renderContributorsPage(env: Env, request: Request) {
+  const contributors = await listContributors(env);
+  return renderContributorShell(
+    'Contributors',
+    `<div class="eyebrow">People behind the diligence</div><h1>Contributor reputation.</h1><section class="grid">${contributors
+      .map(
+        (person) => `<article class="card"><h2><a href="/contributors/${escapeHtml(person.handle)}/">${escapeHtml(person.display_name)}</a></h2><div class="meta"><span class="pill">@${escapeHtml(person.handle)}</span><span class="pill">${escapeHtml(person.role)}</span></div><p>Credibility grows through dossiers, diligence notes, readiness checks, and serious interest signals.</p><div class="stats"><div class="stat"><strong>${escapeHtml(person.dossier_count)}</strong><span>dossiers</span></div><div class="stat"><strong>${escapeHtml(person.note_count)}</strong><span>notes</span></div><div class="stat"><strong>${escapeHtml(person.interest_count)}</strong><span>signals</span></div></div></article>`,
+      )
+      .join('')}</section>`,
+    request,
+  );
+}
+
+async function renderContributorPage(env: Env, request: Request, handle: string) {
+  const person = await contributorByHandle(env, handle);
+  if (!person) return new Response('Contributor not found', { status: 404, headers: SECURITY_HEADERS });
+  const dossiers = await env.DB.prepare(
+    `SELECT id, title, summary, status, readiness, updated_at
+     FROM dossiers
+     WHERE created_by = ?
+     ORDER BY updated_at DESC
+     LIMIT 30`,
+  )
+    .bind(person.id)
+    .all<Record<string, string>>();
+  const notes = await env.DB.prepare(
+    `SELECT n.kind, n.body, n.created_at, d.id AS dossier_id, d.title AS dossier_title
+     FROM diligence_notes n
+     JOIN dossiers d ON d.id = n.dossier_id
+     WHERE n.profile_id = ?
+     ORDER BY n.created_at DESC
+     LIMIT 40`,
+  )
+    .bind(person.id)
+    .all<Record<string, string>>();
+  return renderContributorShell(
+    person.display_name,
+    `<div class="eyebrow">Contributor profile</div><h1>${escapeHtml(person.display_name)}</h1>
+    <section class="panel"><div class="meta"><span class="pill">@${escapeHtml(person.handle)}</span><span class="pill">${escapeHtml(person.role)}</span></div><p>This profile records dossier authorship, diligence work, builder/investor signals, and readiness judgment.</p><div class="stats"><div class="stat"><strong>${escapeHtml(person.dossier_count)}</strong><span>dossiers</span></div><div class="stat"><strong>${escapeHtml(person.note_count)}</strong><span>diligence notes</span></div><div class="stat"><strong>${escapeHtml(person.reputation)}</strong><span>reputation</span></div></div></section>
+    <section class="grid" style="margin-top:1rem"><div class="panel"><h2>Dossiers</h2><div class="list">${(dossiers.results || []).map((dossier) => `<a class="item" href="/dossiers/${escapeHtml(dossier.id)}/"><strong>${escapeHtml(dossier.title)}</strong><span>${escapeHtml(dossier.status)} / ${escapeHtml(dossier.readiness)} readiness - ${escapeHtml(dossier.summary)}</span></a>`).join('') || '<p>No dossiers created yet.</p>'}</div></div><div class="panel"><h2>Diligence notes</h2><div class="list">${(notes.results || []).map((item) => `<a class="item" href="/dossiers/${escapeHtml(item.dossier_id)}/"><strong>${escapeHtml(item.kind)} on ${escapeHtml(item.dossier_title)}</strong><span>${escapeHtml(item.body)}</span></a>`).join('') || '<p>No diligence notes yet.</p>'}</div></div></section>`,
+    request,
+  );
+}
+
+function renderConsolePage(request: Request) {
+  const origin = new URL(request.url).origin;
+  return new Response(`<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>Console - ProIdeaStore</title><meta name="description" content="Create ProIdeaStore opportunity dossiers with GitHub or Google sign-in."><link rel="canonical" href="${escapeHtml(origin)}/console/"><link rel="icon" type="image/svg+xml" href="/favicon.svg"><link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,700;9..144,800&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet"><style>
+*{box-sizing:border-box;margin:0;padding:0}:root{--accent:#6d28d9;--ruby:#be123c;--paper:#f8fafc;--panel:#fff;--ink:#171322;--muted:#667085;--line:#e4e7ec;--dark:#1f1737;--bad:#dc2626}body{background:var(--paper);color:var(--ink);font-family:Manrope,system-ui,sans-serif;line-height:1.5}a{color:inherit;text-decoration:none}button,input,textarea,select{font:inherit}header{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:1rem;border-bottom:1px solid var(--line);background:rgba(255,255,255,.94);padding:.7rem 1.25rem;backdrop-filter:blur(14px)}.brand{display:flex;align-items:center;gap:.6rem;font-weight:800}.mark{display:grid;height:34px;width:34px;place-items:center;border-radius:8px;background:var(--dark);color:#ddd6fe;font-weight:900;box-shadow:inset 0 -4px 0 rgba(190,18,60,.9)}.brand span:last-child{font-family:Fraunces,serif}nav{margin-left:auto;display:flex;gap:.9rem;color:var(--muted);font-size:.8rem;font-weight:800}.shell{max-width:1120px;margin:0 auto;padding:2rem 1.25rem}.eyebrow{color:var(--accent);font-size:.72rem;font-weight:900;letter-spacing:.12em;text-transform:uppercase}h1{font-family:Fraunces,serif;font-size:clamp(2.1rem,5vw,4.4rem);line-height:.98;margin:.45rem 0 1rem}.layout{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:1rem;align-items:start}.panel{border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:1rem;box-shadow:0 10px 22px rgba(16,24,40,.04)}.panel h2{font-size:1rem;margin-bottom:.6rem}.muted{color:var(--muted);font-size:.86rem}.auth{display:grid;gap:.5rem}.button{display:inline-flex;justify-content:center;align-items:center;border:1px solid var(--accent);border-radius:8px;background:var(--accent);color:white;cursor:pointer;padding:.65rem .85rem;font-weight:900}.button.secondary{background:white;color:var(--accent)}.button.danger{border-color:var(--bad);background:white;color:var(--bad)}form{display:grid;gap:.75rem}label{display:grid;gap:.3rem;color:var(--muted);font-size:.78rem;font-weight:900;text-transform:uppercase}input,textarea,select{width:100%;border:1px solid var(--line);border-radius:8px;background:white;color:var(--ink);padding:.65rem}textarea{min-height:110px;resize:vertical}.split{display:grid;grid-template-columns:1fr 1fr;gap:.75rem}.status{border:1px solid var(--line);border-radius:8px;background:#fbfbff;color:var(--muted);padding:.75rem;font-size:.84rem;margin-top:.75rem}.status.ok{border-color:#c4b5fd;color:#4c1d95}.status.err{border-color:#fecaca;color:#991b1b}@media(max-width:840px){.layout{grid-template-columns:1fr}nav{display:none}.split{grid-template-columns:1fr}}</style></head>
+<body><header><a href="/" class="brand"><span class="mark">PI</span><span>ProIdeaStore</span></a><nav><a href="/#dossiers">Dossiers</a><a href="/contributors/">Contributors</a><a href="/console/">Console</a><a href="https://freeideastore.online">FreeIdeaStore</a></nav></header><main class="shell"><div class="eyebrow">Dossier console</div><h1>Build an opportunity packet.</h1><div class="layout"><section class="panel"><form id="dossier-form"><label>Title<input name="title" required minlength="3" maxlength="140" placeholder="Example: ASX filings analyst"></label><label>Summary<textarea name="summary" required minlength="20" maxlength="1200" placeholder="What is the opportunity, who buys, and what is already known?"></textarea></label><div class="split"><label>Status<select name="status"><option>early</option><option>concept</option><option>diligence</option><option>prototype</option><option>ready</option></select></label><label>Readiness<input type="number" name="readiness" min="0" max="100" value="0"></label></div><label>Type<input name="type" maxlength="60" placeholder="research-saas, community-app, platform"></label><label>Buyer<input name="buyer" maxlength="500" placeholder="Who would pay or seriously engage?"></label><label>Evidence<textarea name="evidence" maxlength="800" placeholder="Sources, pilots, competitor research, prototypes, user interviews."></textarea></label><label>Missing<textarea name="missing" maxlength="800" placeholder="The biggest diligence gaps."></textarea></label><label>Assets<input name="assets" maxlength="500" placeholder="research memo, prototype, pitch deck"></label><label id="guest-label">Guest handle<input name="handle" maxlength="40" placeholder="only used when not signed in"></label><button class="button" type="submit">Create dossier</button></form><div id="status" class="status">Dossiers are attributed to your signed-in profile when available.</div></section><aside class="panel"><h2>Session</h2><p id="session" class="muted">Checking sign-in...</p><div class="auth" id="auth-actions"><a class="button" href="${AUTH_PREFIX}/start?provider=github&return_to=/console/">Sign in with GitHub</a><a class="button secondary" href="${AUTH_PREFIX}/start?provider=google&return_to=/console/">Sign in with Google</a></div></aside></div></main><script>
+const form=document.querySelector('#dossier-form');const statusBox=document.querySelector('#status');const sessionBox=document.querySelector('#session');const actions=document.querySelector('#auth-actions');const guestLabel=document.querySelector('#guest-label');let signedInUser=null;function setStatus(message,kind=''){statusBox.className='status '+kind;statusBox.textContent=message}async function loadSession(){const response=await fetch('${AUTH_PREFIX}/me').catch(()=>null);if(!response||!response.ok){sessionBox.textContent='Not signed in. You can test with a guest handle, but pro attribution should use GitHub or Google.';return}const data=await response.json();signedInUser=data.user;sessionBox.textContent='Signed in as @'+signedInUser.handle+' via '+signedInUser.provider+'.';guestLabel.style.display='none';actions.innerHTML='<button class="button danger" id="logout" type="button">Sign out</button>';document.querySelector('#logout').addEventListener('click',async()=>{await fetch('${AUTH_PREFIX}/logout',{method:'POST'});location.reload()})}form.addEventListener('submit',async(event)=>{event.preventDefault();const data=Object.fromEntries(new FormData(form).entries());data.assets=String(data.assets||'').split(',').map((item)=>item.trim()).filter(Boolean);const headers={'content-type':'application/json'};if(!signedInUser&&data.handle)headers['x-idea-handle']=data.handle;const response=await fetch('/api/dossiers',{method:'POST',headers,body:JSON.stringify(data)});const result=await response.json().catch(()=>({}));if(!response.ok)return setStatus(result.error||'Could not create dossier.','err');setStatus('Dossier created. Opening the public page...','ok');location.href='/dossiers/'+encodeURIComponent(result.dossier)+'/'});loadSession();
+</script></body></html>`, {
+    headers: { ...SECURITY_HEADERS, 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'no-store' },
+  });
+}
+
 async function renderDossierPage(env: Env, request: Request, dossierId: string) {
   const dossier = await dossierById(env, dossierId);
   if (!dossier) return new Response('Dossier not found', { status: 404, headers: SECURITY_HEADERS });
@@ -166,11 +471,11 @@ async function renderDossierPage(env: Env, request: Request, dossierId: string) 
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,700;9..144,800&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-:root{--accent:#7c3aed;--soft:#ede9fe;--paper:#f8fafc;--panel:#fff;--ink:#101018;--muted:#667085;--line:#e4e7ec;--dark:#1f1737}
+:root{--accent:#6d28d9;--ruby:#be123c;--soft:#ede9fe;--paper:#f8fafc;--panel:#fff;--ink:#171322;--muted:#667085;--line:#e4e7ec;--dark:#1f1737}
 body{background:var(--paper);color:var(--ink);font-family:Manrope,system-ui,sans-serif;line-height:1.55}
 a{color:inherit;text-decoration:none}
 header{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:1rem;border-bottom:1px solid var(--line);background:rgba(255,255,255,.94);padding:.7rem 1.25rem;backdrop-filter:blur(14px)}
-.brand{display:flex;align-items:center;gap:.6rem;font-weight:800}.logo{display:grid;height:34px;width:34px;place-items:center;border-radius:8px;background:var(--accent);color:white}.brand span:last-child{font-family:Fraunces,serif}
+.brand{display:flex;align-items:center;gap:.6rem;font-weight:800}.logo{display:grid;height:34px;width:34px;place-items:center;border-radius:8px;background:var(--dark);color:#ddd6fe;box-shadow:inset 0 -4px 0 rgba(190,18,60,.9);font-weight:900}.brand span:last-child{font-family:Fraunces,serif}
 nav{margin-left:auto;display:flex;gap:.9rem;color:var(--muted);font-size:.8rem;font-weight:800}
 .shell{max-width:1080px;margin:0 auto;padding:2rem 1.25rem}.crumb{color:var(--accent);font-size:.75rem;font-weight:900;text-transform:uppercase;letter-spacing:.1em}
 h1{font-family:Fraunces,serif;font-size:clamp(2.1rem,5.8vw,4.5rem);line-height:.96;margin:.45rem 0 .8rem;letter-spacing:0}.lead{max-width:780px;color:var(--muted)}
@@ -182,7 +487,7 @@ h1{font-family:Fraunces,serif;font-size:clamp(2.1rem,5.8vw,4.5rem);line-height:.
 </style>
 </head>
 <body>
-<header><a href="/" class="brand"><span class="logo">I</span><span>ProIdeaStore</span></a><nav><a href="/#dossiers">Dossiers</a><a href="https://freeideastore.online">FreeIdeaStore</a></nav></header>
+<header><a href="/" class="brand"><span class="logo">PI</span><span>ProIdeaStore</span></a><nav><a href="/#dossiers">Dossiers</a><a href="/contributors/">Contributors</a><a href="/console/">Console</a><a href="https://freeideastore.online">FreeIdeaStore</a></nav></header>
 <main class="shell">
   <div class="crumb">Curated opportunity dossier</div>
   <h1>${escapeHtml(dossier.title)}</h1>
@@ -226,6 +531,11 @@ async function handleApi(request: Request, env: Env, url: URL) {
   if (url.pathname === '/api/health') {
     const row = await env.DB.prepare('SELECT COUNT(*) AS count FROM dossiers').first<{ count: number }>();
     return json({ ok: true, service: 'proideastore', dossiers: row?.count ?? 0 });
+  }
+
+  if (url.pathname === '/api/session' && request.method === 'GET') {
+    const user = await authUserFor(request);
+    return user ? json({ user }) : json({ error: 'not signed in' }, { status: 401 });
   }
 
   if (url.pathname === '/api/dossiers' && request.method === 'GET') {
@@ -342,12 +652,33 @@ async function handleApi(request: Request, env: Env, url: URL) {
     return json({ ok: true }, { status: 201 });
   }
 
+  if (url.pathname === '/api/profiles' && request.method === 'GET') {
+    return json({ profiles: await listContributors(env) });
+  }
+
+  if (url.pathname === '/api/contributors' && request.method === 'GET') {
+    return json({ contributors: await listContributors(env) });
+  }
+
+  const contributorMatch = url.pathname.match(/^\/api\/contributors\/([^/]+)$/);
+  if (contributorMatch && request.method === 'GET') {
+    const handle = pathId(contributorMatch[1]);
+    if (!handle) return bad('invalid contributor handle', 400);
+    const contributor = await contributorByHandle(env, handle);
+    if (!contributor) return bad('contributor not found', 404);
+    return json({ contributor, url: `/contributors/${contributor.handle}/` });
+  }
+
   return bad('not found', 404);
 }
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+
+    const authResponse = await handleAuth(request, url);
+    if (authResponse) return authResponse;
+
     if (url.pathname.startsWith('/api/')) {
       try {
         return await handleApi(request, env, url);
@@ -362,6 +693,29 @@ export default {
         const dossierId = pathId(dossierPageMatch[1]);
         if (!dossierId) return new Response('Dossier not found', { status: 404, headers: SECURITY_HEADERS });
         return await renderDossierPage(env, request, dossierId);
+      } catch (error) {
+        return json({ error: error instanceof Error ? error.message : 'internal error' }, { status: 500 });
+      }
+    }
+
+    if (url.pathname === '/console' || url.pathname === '/console/') {
+      return renderConsolePage(request);
+    }
+
+    if (url.pathname === '/contributors' || url.pathname === '/contributors/') {
+      try {
+        return await renderContributorsPage(env, request);
+      } catch (error) {
+        return json({ error: error instanceof Error ? error.message : 'internal error' }, { status: 500 });
+      }
+    }
+
+    const contributorPageMatch = url.pathname.match(/^\/contributors\/([^/]+)\/?$/);
+    if (contributorPageMatch) {
+      try {
+        const handle = pathId(contributorPageMatch[1]);
+        if (!handle) return new Response('Contributor not found', { status: 404, headers: SECURITY_HEADERS });
+        return await renderContributorPage(env, request, handle);
       } catch (error) {
         return json({ error: error instanceof Error ? error.message : 'internal error' }, { status: 500 });
       }

@@ -65,6 +65,24 @@ class FakeD1 {
     if (sql.includes('FROM dossiers d') && !sql.includes('WHERE d.id = ?')) {
       return new FakeStatement({ all: () => ({ results: Array.from(this.dossiers.values()) }) });
     }
+    if (sql.includes('FROM profiles p') && sql.includes('LEFT JOIN dossiers d') && !sql.includes('WHERE p.handle')) {
+      return new FakeStatement({
+        all: () => ({
+          results: [
+            {
+              id: 'profile-diligence-lead',
+              handle: 'diligence-lead',
+              display_name: 'Diligence Lead',
+              role: 'curator',
+              reputation: 220,
+              dossier_count: 1,
+              note_count: 4,
+              interest_count: 1,
+            },
+          ],
+        }),
+      });
+    }
     if (sql.includes('FROM diligence_notes n JOIN profiles')) {
       return new FakeStatement({
         all: () => ({
@@ -123,6 +141,31 @@ describe('ProIdeaStore worker', () => {
     expect(response.status).toBe(200);
     expect(html).toContain('Curated opportunity dossier');
     expect(html).not.toContain('internal error');
+  });
+
+  it('renders contributor directory and console surfaces', async () => {
+    const contributors = await worker.fetch(new Request('https://pis.test/contributors/'), env());
+    const contributorHtml = await contributors.text();
+    const consolePage = await worker.fetch(new Request('https://pis.test/console/'), env());
+    const consoleHtml = await consolePage.text();
+
+    expect(contributors.status).toBe(200);
+    expect(contributorHtml).toContain('Contributor reputation.');
+    expect(contributorHtml).toContain('Diligence Lead');
+    expect(consolePage.status).toBe(200);
+    expect(consoleHtml).toContain('Create dossier');
+    expect(consoleHtml).toContain('Sign in with GitHub');
+  });
+
+  it('starts OAuth through the ProAppStore auth API with a nonce cookie', async () => {
+    const response = await worker.fetch(new Request('https://pis.test/.pis/auth/start?provider=github&return_to=/console/'), env());
+    const location = response.headers.get('location') || '';
+
+    expect(response.status).toBe(302);
+    expect(location).toContain('https://api.proappstore.online/v1/auth/github/start');
+    expect(location).toContain('app_id=proideastore');
+    expect(location).toContain('response_mode=query');
+    expect(response.headers.get('set-cookie')).toContain('__Host-pis_auth_nonce=');
   });
 
   it('creates dossiers through the API with clamped readiness', async () => {

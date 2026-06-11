@@ -1,0 +1,17 @@
+{
+  "name": "ProIdeaStore",
+  "short_name": "PIS",
+  "description": "A diligence room for mature ideas, opportunity dossiers, contributor history, and investable research packets.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#1f1737",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
