@@ -3,8 +3,10 @@ import { expect, test } from '@playwright/test';
 test('homepage loads dossier cards and navigates to a hosted dossier page', async ({ page, isMobile }) => {
   await page.goto('/');
 
-  await expect(page.getByRole('heading', { name: 'Not ideas. Diligence.' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Opportunity dossiers.' })).toBeVisible();
   if (!isMobile) {
+    await expect(page.locator('nav').getByRole('link', { name: 'About', exact: true })).toBeVisible();
+    await expect(page.locator('nav').getByRole('link', { name: 'Docs', exact: true })).toBeVisible();
     await expect(page.locator('nav').getByRole('link', { name: 'Contributors', exact: true })).toBeVisible();
     await expect(page.locator('nav').getByRole('link', { name: 'Console', exact: true })).toBeVisible();
   }
@@ -35,6 +37,16 @@ test('contributors and console pages are available', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Build an opportunity packet.' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Sign in with GitHub' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Create dossier' })).toBeVisible();
+});
+
+test('about and docs pages explain the portal', async ({ page }) => {
+  await page.goto('/about/');
+  await expect(page.getByRole('heading', { name: 'A curated layer for serious opportunities.' })).toBeVisible();
+  await expect(page.getByText('What belongs here')).toBeVisible();
+
+  await page.goto('/docs/');
+  await expect(page.getByRole('heading', { name: 'ProIdeaStore guide.' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Dossier contents' })).toBeVisible();
 });
 
 test('profile page offers account sign-in controls', async ({ page }) => {
