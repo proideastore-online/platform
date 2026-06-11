@@ -182,7 +182,7 @@ h1{font-family:Fraunces,serif;font-size:clamp(2.1rem,5.8vw,4.5rem);line-height:.
 </style>
 </head>
 <body>
-<header><a href="/" class="brand"><span class="logo">I</span><span>ProIdeaStore</span></a><nav><a href="/#dossiers">Dossiers</a><a href="https://freeideastore.serge-the-dev.workers.dev">FreeIdeaStore</a></nav></header>
+<header><a href="/" class="brand"><span class="logo">I</span><span>ProIdeaStore</span></a><nav><a href="/#dossiers">Dossiers</a><a href="https://freeideastore.online">FreeIdeaStore</a></nav></header>
 <main class="shell">
   <div class="crumb">Curated opportunity dossier</div>
   <h1>${escapeHtml(dossier.title)}</h1>

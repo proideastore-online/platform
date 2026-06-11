@@ -5,7 +5,7 @@ export default defineConfig({
   timeout: 30_000,
   expect: { timeout: 10_000 },
   use: {
-    baseURL: process.env.BASE_URL || 'https://proideastore.serge-the-dev.workers.dev',
+    baseURL: process.env.BASE_URL || 'https://proideastore.online',
     trace: 'retain-on-failure',
   },
   projects: [

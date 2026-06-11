@@ -22,7 +22,7 @@ pnpm dev
 
 Live Worker:
 
-https://proideastore.serge-the-dev.workers.dev
+https://proideastore.online
 
 ## Product Principle
 

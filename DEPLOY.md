@@ -6,7 +6,7 @@ ProIdeaStore is intentionally the heavier curated layer. FreeIdeaStore should ke
 
 ## Live
 
-https://proideastore.serge-the-dev.workers.dev
+https://proideastore.online
 
 ## Cloudflare Resources
 
@@ -26,13 +26,18 @@ doppler run --project pas --config prd -- pnpm --filter @pis/worker exec wrangle
 
 ## Custom Domain
 
-`proideastore.online` is not currently a Cloudflare zone in the account used for deployment, so the Worker is live on `workers.dev`.
+`proideastore.online` is the canonical public domain for the ProIdeaStore Worker.
 
-When the zone exists:
+Wrangler config:
 
-1. Add route blocks back to `packages/worker/wrangler.toml`.
-2. Update canonical links and sitemap to `https://proideastore.online/`.
-3. Deploy with Wrangler.
+```toml
+[[routes]]
+pattern = "proideastore.online"
+zone_name = "proideastore.online"
+custom_domain = true
+```
+
+The `workers.dev` URL may still exist as a fallback, but product links, sitemap, robots, and Playwright E2E tests use `https://proideastore.online`.
 
 ## Doppler
 
