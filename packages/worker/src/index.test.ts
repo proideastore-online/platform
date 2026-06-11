@@ -83,6 +83,23 @@ class FakeD1 {
         }),
       });
     }
+    if (sql.includes('FROM profiles p') && sql.includes('WHERE p.handle')) {
+      return new FakeStatement({
+        first: ([handle]) =>
+          handle === 'diligence-lead'
+            ? {
+                id: 'profile-diligence-lead',
+                handle: 'diligence-lead',
+                display_name: 'Diligence Lead',
+                role: 'curator',
+                reputation: 220,
+                dossier_count: 1,
+                note_count: 4,
+                interest_count: 1,
+              }
+            : null,
+      });
+    }
     if (sql.includes('FROM diligence_notes n JOIN profiles')) {
       return new FakeStatement({
         all: () => ({
@@ -155,6 +172,17 @@ describe('ProIdeaStore worker', () => {
     expect(consolePage.status).toBe(200);
     expect(consoleHtml).toContain('Create dossier');
     expect(consoleHtml).toContain('Sign in with GitHub');
+  });
+
+  it('renders rich user profile pages with diligence sections', async () => {
+    const response = await worker.fetch(new Request('https://pis.test/users/diligence-lead/'), env());
+    const html = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(html).toContain('Diligence Lead');
+    expect(html).toContain('Profile strength');
+    expect(html).toContain('Diligence mix');
+    expect(html).toContain('Best fit');
   });
 
   it('starts OAuth through the ProAppStore auth API with a nonce cookie', async () => {

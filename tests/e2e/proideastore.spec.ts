@@ -27,6 +27,11 @@ test('contributors and console pages are available', async ({ page }) => {
   await expect(page.getByText('Contributor reputation.')).toBeVisible();
   await expect(page.getByText('Diligence Lead')).toBeVisible();
 
+  await page.getByRole('link', { name: 'Diligence Lead' }).click();
+  await expect(page).toHaveURL(/\/contributors\/diligence-lead\/$/);
+  await expect(page.getByText('Profile strength')).toBeVisible();
+  await expect(page.getByText('Diligence mix')).toBeVisible();
+
   await page.goto('/console/');
 
   await expect(page.getByRole('heading', { name: 'Build an opportunity packet.' })).toBeVisible();

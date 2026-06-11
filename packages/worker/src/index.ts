@@ -369,6 +369,45 @@ async function contributorByHandle(env: Env, handle: string) {
     .first<ContributorRow>();
 }
 
+function initials(value: string) {
+  const parts = value
+    .replace(/[^a-z0-9 -]/gi, '')
+    .split(/[\s-]+/)
+    .filter(Boolean);
+  return (parts[0]?.[0] || 'U').toUpperCase() + (parts[1]?.[0] || '').toUpperCase();
+}
+
+function profileStrength(person: ContributorRow) {
+  return Math.min(
+    100,
+    Math.round(
+      Number(person.reputation || 0) * 0.24 +
+        Number(person.note_count || 0) * 14 +
+        Number(person.dossier_count || 0) * 18 +
+        Number(person.interest_count || 0) * 7,
+    ),
+  );
+}
+
+function formatDate(value: unknown) {
+  const time = Date.parse(String(value || ''));
+  if (!Number.isFinite(time)) return '';
+  return new Date(time).toLocaleDateString('en-AU', { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+function renderMix(rows: Array<Record<string, unknown>>, labelKey: string, valueKey: string) {
+  const total = rows.reduce((sum, row) => sum + Number(row[valueKey] || 0), 0);
+  if (!total) return '<p class="empty">No signal mix yet.</p>';
+  return rows
+    .map((row) => {
+      const label = String(row[labelKey] || 'unknown');
+      const count = Number(row[valueKey] || 0);
+      const pct = Math.max(4, Math.round((count / total) * 100));
+      return `<div class="mix-row"><div><strong>${escapeHtml(label)}</strong><span>${escapeHtml(count)} event${count === 1 ? '' : 's'}</span></div><i style="width:${pct}%"></i></div>`;
+    })
+    .join('');
+}
+
 function renderContributorShell(title: string, body: string, request: Request) {
   return new Response(`<!DOCTYPE html>
 <html lang="en">
@@ -384,7 +423,7 @@ function renderContributorShell(title: string, body: string, request: Request) {
 *{box-sizing:border-box;margin:0;padding:0}:root{--accent:#6d28d9;--ruby:#be123c;--paper:#f8fafc;--panel:#fff;--ink:#171322;--muted:#667085;--line:#e4e7ec;--dark:#1f1737}
 body{background:var(--paper);color:var(--ink);font-family:Manrope,system-ui,sans-serif;line-height:1.5}a{color:inherit;text-decoration:none}
 header{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:1rem;border-bottom:1px solid var(--line);background:rgba(255,255,255,.94);padding:.7rem 1.25rem;backdrop-filter:blur(14px)}.brand{display:flex;align-items:center;gap:.6rem;font-weight:800}.mark{display:grid;height:34px;width:34px;place-items:center;border-radius:8px;background:var(--dark);color:#ddd6fe;font-weight:900;box-shadow:inset 0 -4px 0 rgba(190,18,60,.9)}.brand span:last-child{font-family:Fraunces,serif}nav{margin-left:auto;display:flex;gap:.9rem;color:var(--muted);font-size:.8rem;font-weight:800}
-.shell{max-width:1120px;margin:0 auto;padding:2rem 1.25rem}.eyebrow{color:var(--accent);font-size:.72rem;font-weight:900;letter-spacing:.12em;text-transform:uppercase}h1{font-family:Fraunces,serif;font-size:clamp(2.1rem,5vw,4.2rem);line-height:.98;margin:.45rem 0 1rem}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:.85rem}.card,.panel{border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:1rem;box-shadow:0 10px 22px rgba(16,24,40,.04)}.card h2{font-size:1rem}.meta{display:flex;flex-wrap:wrap;gap:.35rem;margin:.65rem 0}.pill{border:1px solid var(--line);border-radius:999px;background:#f5f3ff;color:var(--accent);font-size:.68rem;font-weight:900;padding:.22rem .48rem;text-transform:uppercase}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:.45rem;margin-top:.8rem}.stat{border-left:3px solid var(--line);padding-left:.55rem}.stat strong{display:block;font-size:1.05rem}.stat span{color:var(--muted);font-size:.7rem;font-weight:800}.list{display:grid;gap:.55rem;margin-top:1rem}.item{border:1px solid var(--line);border-radius:8px;background:#fbfbff;padding:.75rem}.item strong{display:block}.item span{display:block;color:var(--muted);font-size:.78rem;margin-top:.2rem}@media(max-width:760px){nav{display:none}.stats{grid-template-columns:1fr}}
+.shell{max-width:1120px;margin:0 auto;padding:2rem 1.25rem}.eyebrow{color:var(--accent);font-size:.72rem;font-weight:900;letter-spacing:.12em;text-transform:uppercase}h1{font-family:Fraunces,serif;font-size:clamp(2.1rem,5vw,4.2rem);line-height:.98;margin:.45rem 0 1rem}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:.85rem}.profile-grid{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:1rem;align-items:start}.card,.panel,.hero-card{border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:1rem;box-shadow:0 10px 22px rgba(16,24,40,.04)}.hero-card{display:grid;grid-template-columns:88px 1fr;gap:1rem;align-items:center;margin-bottom:1rem}.avatar{display:grid;width:88px;height:88px;place-items:center;border-radius:50%;background:var(--dark);color:#ddd6fe;font-size:1.8rem;font-weight:900;box-shadow:inset 0 -7px 0 rgba(190,18,60,.9)}.card h2,.panel h2{font-size:1rem}.profile-title{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem}.profile-title h1{margin:.1rem 0;font-size:clamp(2rem,4vw,3.5rem)}.muted{color:var(--muted);font-size:.88rem}.meta{display:flex;flex-wrap:wrap;gap:.35rem;margin:.65rem 0}.pill{border:1px solid var(--line);border-radius:999px;background:#f5f3ff;color:var(--accent);font-size:.68rem;font-weight:900;padding:.22rem .48rem;text-transform:uppercase}.pill.ruby{background:#fff1f2;color:var(--ruby)}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:.45rem;margin-top:.8rem}.stat{border-left:3px solid var(--line);padding-left:.55rem}.stat strong{display:block;font-size:1.05rem}.stat span{color:var(--muted);font-size:.7rem;font-weight:800}.score{display:grid;gap:.35rem}.score strong{font-size:2rem}.meter{height:10px;border-radius:999px;background:#ede9fe;overflow:hidden}.meter i{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,var(--accent),var(--ruby))}.list{display:grid;gap:.55rem;margin-top:1rem}.item{border:1px solid var(--line);border-radius:8px;background:#fbfbff;padding:.75rem}.item strong{display:block}.item span,.item time{display:block;color:var(--muted);font-size:.78rem;margin-top:.2rem}.empty{color:var(--muted);font-size:.85rem}.button{display:inline-flex;border:1px solid var(--accent);border-radius:8px;background:var(--accent);color:white;padding:.55rem .7rem;font-size:.78rem;font-weight:900;margin-top:.8rem}.mix{display:grid;gap:.55rem;margin-top:.75rem}.mix-row{display:grid;gap:.32rem}.mix-row div{display:flex;justify-content:space-between;gap:.75rem;font-size:.78rem}.mix-row span{color:var(--muted)}.mix-row i{display:block;height:8px;border-radius:999px;background:var(--accent)}@media(max-width:860px){nav{display:none}.profile-grid{grid-template-columns:1fr}.hero-card{grid-template-columns:64px 1fr}.avatar{width:64px;height:64px;font-size:1.25rem}}@media(max-width:760px){.stats{grid-template-columns:1fr}}
 </style>
 </head><body><header><a href="/" class="brand"><span class="mark">PI</span><span>ProIdeaStore</span></a><nav><a href="/#dossiers">Dossiers</a><a href="/contributors/">Contributors</a><a href="/console/">Console</a><a href="https://freeideastore.online">FreeIdeaStore</a></nav></header><main class="shell">${body}</main></body></html>`, {
     headers: { ...SECURITY_HEADERS, 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public, max-age=60' },
@@ -397,7 +436,7 @@ async function renderContributorsPage(env: Env, request: Request) {
     'Contributors',
     `<div class="eyebrow">People behind the diligence</div><h1>Contributor reputation.</h1><section class="grid">${contributors
       .map(
-        (person) => `<article class="card"><h2><a href="/contributors/${escapeHtml(person.handle)}/">${escapeHtml(person.display_name)}</a></h2><div class="meta"><span class="pill">@${escapeHtml(person.handle)}</span><span class="pill">${escapeHtml(person.role)}</span></div><p>Credibility grows through dossiers, diligence notes, readiness checks, and serious interest signals.</p><div class="stats"><div class="stat"><strong>${escapeHtml(person.dossier_count)}</strong><span>dossiers</span></div><div class="stat"><strong>${escapeHtml(person.note_count)}</strong><span>notes</span></div><div class="stat"><strong>${escapeHtml(person.interest_count)}</strong><span>signals</span></div></div></article>`,
+        (person) => `<article class="card"><div class="profile-title"><div class="avatar" style="width:48px;height:48px;font-size:1rem">${escapeHtml(initials(person.display_name))}</div><h2><a href="/contributors/${escapeHtml(person.handle)}/">${escapeHtml(person.display_name)}</a></h2></div><div class="meta"><span class="pill">@${escapeHtml(person.handle)}</span><span class="pill">${escapeHtml(person.role)}</span><span class="pill ruby">${escapeHtml(profileStrength(person))} strength</span></div><p>Credibility grows through dossiers, diligence notes, readiness checks, and serious interest signals.</p><div class="stats"><div class="stat"><strong>${escapeHtml(person.dossier_count)}</strong><span>dossiers</span></div><div class="stat"><strong>${escapeHtml(person.note_count)}</strong><span>notes</span></div><div class="stat"><strong>${escapeHtml(person.interest_count)}</strong><span>signals</span></div></div></article>`,
       )
       .join('')}</section>`,
     request,
@@ -426,11 +465,49 @@ async function renderContributorPage(env: Env, request: Request, handle: string)
   )
     .bind(person.id)
     .all<Record<string, string>>();
+  const noteMix = await env.DB.prepare(
+    `SELECT kind, COUNT(*) AS count
+     FROM diligence_notes
+     WHERE profile_id = ?
+     GROUP BY kind
+     ORDER BY count DESC, kind ASC`,
+  )
+    .bind(person.id)
+    .all<Record<string, unknown>>();
+  const interestMix = await env.DB.prepare(
+    `SELECT type, COUNT(*) AS count
+     FROM interest_signals
+     WHERE profile_id = ?
+     GROUP BY type
+     ORDER BY count DESC, type ASC`,
+  )
+    .bind(person.id)
+    .all<Record<string, unknown>>();
+  const strength = profileStrength(person);
   return renderContributorShell(
     person.display_name,
-    `<div class="eyebrow">Contributor profile</div><h1>${escapeHtml(person.display_name)}</h1>
-    <section class="panel"><div class="meta"><span class="pill">@${escapeHtml(person.handle)}</span><span class="pill">${escapeHtml(person.role)}</span></div><p>This profile records dossier authorship, diligence work, builder/investor signals, and readiness judgment.</p><div class="stats"><div class="stat"><strong>${escapeHtml(person.dossier_count)}</strong><span>dossiers</span></div><div class="stat"><strong>${escapeHtml(person.note_count)}</strong><span>diligence notes</span></div><div class="stat"><strong>${escapeHtml(person.reputation)}</strong><span>reputation</span></div></div></section>
-    <section class="grid" style="margin-top:1rem"><div class="panel"><h2>Dossiers</h2><div class="list">${(dossiers.results || []).map((dossier) => `<a class="item" href="/dossiers/${escapeHtml(dossier.id)}/"><strong>${escapeHtml(dossier.title)}</strong><span>${escapeHtml(dossier.status)} / ${escapeHtml(dossier.readiness)} readiness - ${escapeHtml(dossier.summary)}</span></a>`).join('') || '<p>No dossiers created yet.</p>'}</div></div><div class="panel"><h2>Diligence notes</h2><div class="list">${(notes.results || []).map((item) => `<a class="item" href="/dossiers/${escapeHtml(item.dossier_id)}/"><strong>${escapeHtml(item.kind)} on ${escapeHtml(item.dossier_title)}</strong><span>${escapeHtml(item.body)}</span></a>`).join('') || '<p>No diligence notes yet.</p>'}</div></div></section>`,
+    `<section class="hero-card">
+      <div class="avatar">${escapeHtml(initials(person.display_name))}</div>
+      <div>
+        <div class="eyebrow">Contributor profile</div>
+        <div class="profile-title"><h1>${escapeHtml(person.display_name)}</h1><span class="pill ruby">${escapeHtml(strength)} strength</span></div>
+        <div class="meta"><span class="pill">@${escapeHtml(person.handle)}</span><span class="pill">${escapeHtml(person.role)}</span></div>
+        <p class="muted">This profile records dossier authorship, diligence work, builder/investor signals, and readiness judgment.</p>
+      </div>
+    </section>
+    <section class="profile-grid">
+      <div>
+        <section class="panel"><h2>Public work</h2><div class="stats"><div class="stat"><strong>${escapeHtml(person.dossier_count)}</strong><span>dossiers created</span></div><div class="stat"><strong>${escapeHtml(person.note_count)}</strong><span>diligence notes</span></div><div class="stat"><strong>${escapeHtml(person.interest_count)}</strong><span>interest signals</span></div></div></section>
+        <section class="panel" style="margin-top:1rem"><h2>Dossiers</h2><div class="list">${(dossiers.results || []).map((dossier) => `<a class="item" href="/dossiers/${escapeHtml(dossier.id)}/"><strong>${escapeHtml(dossier.title)}</strong><span>${escapeHtml(dossier.status)} / ${escapeHtml(dossier.readiness)} readiness - ${escapeHtml(dossier.summary)}</span><time>${escapeHtml(formatDate(dossier.updated_at))}</time></a>`).join('') || '<p class="empty">No dossiers created yet.</p>'}</div></section>
+        <section class="panel" style="margin-top:1rem"><h2>Diligence notes</h2><div class="list">${(notes.results || []).map((item) => `<a class="item" href="/dossiers/${escapeHtml(item.dossier_id)}/"><strong>${escapeHtml(item.kind)} on ${escapeHtml(item.dossier_title)}</strong><span>${escapeHtml(item.body)}</span><time>${escapeHtml(formatDate(item.created_at))}</time></a>`).join('') || '<p class="empty">No diligence notes yet.</p>'}</div></section>
+      </div>
+      <aside>
+        <section class="panel score"><h2>Profile strength</h2><strong>${escapeHtml(strength)}%</strong><div class="meter"><i style="width:${escapeHtml(strength)}%"></i></div><p class="muted">Weighted from reputation, dossiers, diligence notes, and serious watch/build/fund signals.</p></section>
+        <section class="panel" style="margin-top:1rem"><h2>Diligence mix</h2><div class="mix">${renderMix(noteMix.results || [], 'kind', 'count')}</div></section>
+        <section class="panel" style="margin-top:1rem"><h2>Interest mix</h2><div class="mix">${renderMix(interestMix.results || [], 'type', 'count')}</div></section>
+        <section class="panel" style="margin-top:1rem"><h2>Best fit</h2><p class="muted">Invite this person when a dossier needs ${person.note_count ? 'research pressure, risk honesty, prototype framing, or investor-readable evidence' : 'first diligence notes and readiness review'}.</p><a class="button" href="/console/">Create a dossier</a></section>
+      </aside>
+    </section>`,
     request,
   );
 }
@@ -710,7 +787,13 @@ export default {
       }
     }
 
-    const contributorPageMatch = url.pathname.match(/^\/contributors\/([^/]+)\/?$/);
+    if (url.pathname === '/profile' || url.pathname === '/profile/') {
+      const user = await authUserFor(request);
+      if (!user) return Response.redirect(`${url.origin}/console/#signin-required`, 302);
+      return Response.redirect(`${url.origin}/contributors/${user.handle}/`, 302);
+    }
+
+    const contributorPageMatch = url.pathname.match(/^\/(?:contributors|users)\/([^/]+)\/?$/);
     if (contributorPageMatch) {
       try {
         const handle = pathId(contributorPageMatch[1]);
