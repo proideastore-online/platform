@@ -7,6 +7,7 @@ type AuthUser = {
   handle: string;
   displayName: string;
   provider: string;
+  avatarUrl: string | null;
 };
 
 type ContributorRow = {
@@ -28,7 +29,7 @@ const JSON_HEADERS = {
 
 const SECURITY_HEADERS: Record<string, string> = {
   'Content-Security-Policy':
-    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'",
+    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'",
   'X-Content-Type-Options': 'nosniff',
   'X-Frame-Options': 'SAMEORIGIN',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
@@ -46,6 +47,7 @@ const AUTH_APP_ID = 'proideastore';
 const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
 const NONCE_TTL_SECONDS = 10 * 60;
 const AUTH_PROVIDERS = new Set(['github', 'google']);
+const HIDDEN_CONTRIBUTOR_HANDLES = "'system','diligence-lead','builder-scout','investor-reader','cloudflare-smoke'";
 
 function json(data: unknown, init: ResponseInit = {}) {
   return new Response(JSON.stringify(data), {
@@ -190,6 +192,7 @@ function normalizeAuthUser(payload: unknown): AuthUser | null {
     handle,
     displayName: String(user.displayName || user.display_name || user.name || rawHandle).trim() || handle,
     provider: String(user.provider || data.provider || 'auth'),
+    avatarUrl: String(user.avatarUrl || user.avatar_url || user.picture || '').trim() || null,
   };
 }
 
@@ -340,6 +343,7 @@ async function listContributors(env: Env) {
      LEFT JOIN dossiers d ON d.created_by = p.id
      LEFT JOIN diligence_notes n ON n.profile_id = p.id
      LEFT JOIN interest_signals i ON i.profile_id = p.id
+     WHERE p.handle NOT IN (${HIDDEN_CONTRIBUTOR_HANDLES})
      GROUP BY p.id
      ORDER BY p.reputation DESC, note_count DESC, dossier_count DESC, p.handle ASC
      LIMIT 100`,
@@ -362,7 +366,7 @@ async function contributorByHandle(env: Env, handle: string) {
      LEFT JOIN dossiers d ON d.created_by = p.id
      LEFT JOIN diligence_notes n ON n.profile_id = p.id
      LEFT JOIN interest_signals i ON i.profile_id = p.id
-     WHERE p.handle = ?
+     WHERE p.handle = ? AND p.handle NOT IN (${HIDDEN_CONTRIBUTOR_HANDLES})
      GROUP BY p.id`,
   )
     .bind(handle)
@@ -408,6 +412,14 @@ function renderMix(rows: Array<Record<string, unknown>>, labelKey: string, value
     .join('');
 }
 
+function accountAvatar(user: AuthUser, size = 40) {
+  const dimension = `${size}px`;
+  if (user.avatarUrl) {
+    return `<img src="${escapeHtml(user.avatarUrl)}" alt="${escapeHtml(user.handle)}" width="${escapeHtml(size)}" height="${escapeHtml(size)}">`;
+  }
+  return `<span style="width:${dimension};height:${dimension}">${escapeHtml(initials(user.displayName || user.handle))}</span>`;
+}
+
 function renderContributorShell(title: string, body: string, request: Request) {
   return new Response(`<!DOCTYPE html>
 <html lang="en">
@@ -432,13 +444,18 @@ header{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:1rem
 
 async function renderContributorsPage(env: Env, request: Request) {
   const contributors = await listContributors(env);
+  const cards = contributors
+    .map(
+      (person) => `<article class="card"><div class="profile-title"><div class="avatar" style="width:48px;height:48px;font-size:1rem">${escapeHtml(initials(person.display_name))}</div><h2><a href="/contributors/${escapeHtml(person.handle)}/">${escapeHtml(person.display_name)}</a></h2></div><div class="meta"><span class="pill">@${escapeHtml(person.handle)}</span><span class="pill">${escapeHtml(person.role)}</span><span class="pill ruby">${escapeHtml(profileStrength(person))} strength</span></div><p>Credibility grows through dossiers, diligence notes, readiness checks, and serious interest signals.</p><div class="stats"><div class="stat"><strong>${escapeHtml(person.dossier_count)}</strong><span>dossiers</span></div><div class="stat"><strong>${escapeHtml(person.note_count)}</strong><span>notes</span></div><div class="stat"><strong>${escapeHtml(person.interest_count)}</strong><span>signals</span></div></div></article>`,
+    )
+    .join('');
   return renderContributorShell(
     'Contributors',
-    `<div class="eyebrow">People behind the diligence</div><h1>Contributor reputation.</h1><section class="grid">${contributors
-      .map(
-        (person) => `<article class="card"><div class="profile-title"><div class="avatar" style="width:48px;height:48px;font-size:1rem">${escapeHtml(initials(person.display_name))}</div><h2><a href="/contributors/${escapeHtml(person.handle)}/">${escapeHtml(person.display_name)}</a></h2></div><div class="meta"><span class="pill">@${escapeHtml(person.handle)}</span><span class="pill">${escapeHtml(person.role)}</span><span class="pill ruby">${escapeHtml(profileStrength(person))} strength</span></div><p>Credibility grows through dossiers, diligence notes, readiness checks, and serious interest signals.</p><div class="stats"><div class="stat"><strong>${escapeHtml(person.dossier_count)}</strong><span>dossiers</span></div><div class="stat"><strong>${escapeHtml(person.note_count)}</strong><span>notes</span></div><div class="stat"><strong>${escapeHtml(person.interest_count)}</strong><span>signals</span></div></div></article>`,
-      )
-      .join('')}</section>`,
+    `<div class="eyebrow">People behind the diligence</div><h1>Contributor reputation.</h1>${
+      cards
+        ? `<section class="grid">${cards}</section>`
+        : '<section class="panel"><h2>No public contributors yet.</h2><p class="muted">Real profiles appear here after signed-in people create dossiers, add diligence notes, or signal serious interest.</p><a class="button" href="/console/">Open console</a></section>'
+    }`,
     request,
   );
 }
@@ -512,13 +529,63 @@ async function renderContributorPage(env: Env, request: Request, handle: string)
   );
 }
 
+async function renderAccountPage(env: Env, request: Request) {
+  const user = await authUserFor(request);
+  const profile = user ? await contributorByHandle(env, user.handle) : null;
+  const publicUrl = user ? `/contributors/${escapeHtml(user.handle)}/` : '/contributors/';
+  return new Response(`<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Profile - ProIdeaStore</title>
+<meta name="description" content="Manage your ProIdeaStore account, public profile, appearance, and sign-in state.">
+<link rel="canonical" href="${escapeHtml(new URL(request.url).origin)}/profile/">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,700;9..144,800&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}:root{--accent:#6d28d9;--ruby:#be123c;--paper:#f8fafc;--panel:#fff;--ink:#171322;--muted:#667085;--line:#e4e7ec;--dark:#1f1737;--bad:#dc2626}body{background:var(--paper);color:var(--ink);font-family:Manrope,system-ui,sans-serif;line-height:1.5}a{color:inherit;text-decoration:none}button{font:inherit}header{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:1rem;border-bottom:1px solid var(--line);background:rgba(255,255,255,.94);padding:.7rem 1.25rem;backdrop-filter:blur(14px)}.brand{display:flex;align-items:center;gap:.6rem;font-weight:800}.mark{display:grid;height:34px;width:34px;place-items:center;border-radius:8px;background:var(--dark);color:#ddd6fe;font-weight:900;box-shadow:inset 0 -4px 0 rgba(190,18,60,.9)}.brand span:last-child{font-family:Fraunces,serif}nav{margin-left:auto;display:flex;align-items:center;gap:.9rem;color:var(--muted);font-size:.8rem;font-weight:800}.account-avatar{display:inline-grid;width:36px;height:36px;place-items:center;border:2px solid var(--line);border-radius:50%;overflow:hidden;background:white}.account-avatar img{width:100%;height:100%;object-fit:cover}.account-avatar span{display:grid;place-items:center;border-radius:50%;background:var(--dark);color:#ddd6fe;font-weight:900}.shell{max-width:560px;margin:0 auto;padding:2rem 1.25rem}.identity{display:flex;gap:1rem;align-items:center;margin-bottom:1.5rem}.avatar-large{display:grid;width:72px;height:72px;place-items:center;border-radius:50%;overflow:hidden;background:var(--dark);color:#ddd6fe;font-size:1.5rem;font-weight:900;box-shadow:inset 0 -6px 0 rgba(190,18,60,.9)}.avatar-large img{width:100%;height:100%;object-fit:cover}h1{font-family:Fraunces,serif;font-size:clamp(2rem,5vw,3.2rem);line-height:1}.muted{color:var(--muted);font-size:.88rem}.panel{border:1px solid var(--line);border-radius:8px;background:white;padding:1rem;margin-bottom:1rem;box-shadow:0 10px 22px rgba(16,24,40,.04)}.panel h2{font-size:.95rem;margin-bottom:.75rem}.row{display:flex;justify-content:space-between;gap:1rem;border-top:1px solid var(--line);padding:.7rem 0}.row:first-of-type{border-top:0}.row span{color:var(--muted);font-size:.85rem}.button{display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--accent);border-radius:8px;background:var(--accent);color:white;cursor:pointer;padding:.62rem .85rem;font-weight:900}.button.secondary{background:white;color:var(--accent)}.button.danger{border-color:var(--bad);background:white;color:var(--bad)}.seg{display:flex;gap:.5rem;flex-wrap:wrap}.seg button{border:1px solid var(--line);border-radius:8px;background:white;color:var(--ink);cursor:pointer;padding:.5rem .65rem;font-weight:800}.seg button.active{border-color:var(--accent);background:#f5f3ff;color:#4c1d95}.danger{border-color:#fecaca}.actions{display:flex;gap:.55rem;flex-wrap:wrap}@media(max-width:760px){nav a:not(.account-avatar){display:none}}
+</style>
+</head>
+<body>
+<header><a href="/" class="brand"><span class="mark">PI</span><span>ProIdeaStore</span></a><nav><a href="/#dossiers">Dossiers</a><a href="/contributors/">Contributors</a><a href="/console/">Console</a>${user ? `<a class="account-avatar" href="/profile/" aria-label="Profile">${accountAvatar(user, 36)}</a>` : `<a href="/console/">Sign in</a>`}</nav></header>
+<main class="shell">
+  ${
+    user
+      ? `<section class="identity"><div class="avatar-large">${accountAvatar(user, 72)}</div><div><h1>${escapeHtml(user.displayName)}</h1><p class="muted">@${escapeHtml(user.handle)} / ${escapeHtml(user.provider)} account</p></div></section>
+        <section class="panel"><h2>Public profile</h2><div class="row"><strong>Profile page</strong><span>${publicUrl}</span></div><div class="row"><strong>Dossiers</strong><span>${escapeHtml(profile?.dossier_count ?? 0)}</span></div><div class="row"><strong>Diligence notes</strong><span>${escapeHtml(profile?.note_count ?? 0)}</span></div><div class="actions"><a class="button" href="${publicUrl}">Open public profile</a><a class="button secondary" href="/console/">Create dossier</a></div></section>
+        <section class="panel"><h2>Appearance</h2><p class="muted" style="margin-bottom:.75rem">Stored on this browser.</p><div class="seg" id="theme-controls"><button data-theme="system">System</button><button data-theme="light">Light</button><button data-theme="dark">Dark</button></div></section>
+        <section class="panel"><h2>Account</h2><button class="button secondary" id="logout" type="button">Sign out</button></section>
+        <section class="panel danger"><h2>Danger zone</h2><p class="muted" style="margin-bottom:.75rem">Account deletion must be handled by the shared ProAppStore identity service. This store will not fake-delete shared identity data.</p><button class="button danger" type="button" disabled>Delete account unavailable here</button></section>`
+      : `<section class="panel"><h1>Profile</h1><p class="muted" style="margin:1rem 0">Sign in to view your profile.</p><div class="actions"><a class="button" href="${AUTH_PREFIX}/start?provider=github&return_to=/profile/">Sign in with GitHub</a><a class="button secondary" href="${AUTH_PREFIX}/start?provider=google&return_to=/profile/">Sign in with Google</a></div></section>`
+  }
+</main>
+<script>
+const storedTheme = localStorage.getItem('pis:theme') || 'system';
+document.querySelectorAll('[data-theme]').forEach((button) => {
+  button.classList.toggle('active', button.dataset.theme === storedTheme);
+  button.addEventListener('click', () => {
+    localStorage.setItem('pis:theme', button.dataset.theme);
+    document.querySelectorAll('[data-theme]').forEach((item) => item.classList.toggle('active', item === button));
+  });
+});
+document.querySelector('#logout')?.addEventListener('click', async () => {
+  await fetch('${AUTH_PREFIX}/logout', { method: 'POST' });
+  location.href = '/';
+});
+</script>
+</body></html>`, {
+    headers: { ...SECURITY_HEADERS, 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'no-store' },
+  });
+}
+
 function renderConsolePage(request: Request) {
   const origin = new URL(request.url).origin;
   return new Response(`<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>Console - ProIdeaStore</title><meta name="description" content="Create ProIdeaStore opportunity dossiers with GitHub or Google sign-in."><link rel="canonical" href="${escapeHtml(origin)}/console/"><link rel="icon" type="image/svg+xml" href="/favicon.svg"><link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,700;9..144,800&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet"><style>
-*{box-sizing:border-box;margin:0;padding:0}:root{--accent:#6d28d9;--ruby:#be123c;--paper:#f8fafc;--panel:#fff;--ink:#171322;--muted:#667085;--line:#e4e7ec;--dark:#1f1737;--bad:#dc2626}body{background:var(--paper);color:var(--ink);font-family:Manrope,system-ui,sans-serif;line-height:1.5}a{color:inherit;text-decoration:none}button,input,textarea,select{font:inherit}header{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:1rem;border-bottom:1px solid var(--line);background:rgba(255,255,255,.94);padding:.7rem 1.25rem;backdrop-filter:blur(14px)}.brand{display:flex;align-items:center;gap:.6rem;font-weight:800}.mark{display:grid;height:34px;width:34px;place-items:center;border-radius:8px;background:var(--dark);color:#ddd6fe;font-weight:900;box-shadow:inset 0 -4px 0 rgba(190,18,60,.9)}.brand span:last-child{font-family:Fraunces,serif}nav{margin-left:auto;display:flex;gap:.9rem;color:var(--muted);font-size:.8rem;font-weight:800}.shell{max-width:1120px;margin:0 auto;padding:2rem 1.25rem}.eyebrow{color:var(--accent);font-size:.72rem;font-weight:900;letter-spacing:.12em;text-transform:uppercase}h1{font-family:Fraunces,serif;font-size:clamp(2.1rem,5vw,4.4rem);line-height:.98;margin:.45rem 0 1rem}.layout{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:1rem;align-items:start}.panel{border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:1rem;box-shadow:0 10px 22px rgba(16,24,40,.04)}.panel h2{font-size:1rem;margin-bottom:.6rem}.muted{color:var(--muted);font-size:.86rem}.auth{display:grid;gap:.5rem}.button{display:inline-flex;justify-content:center;align-items:center;border:1px solid var(--accent);border-radius:8px;background:var(--accent);color:white;cursor:pointer;padding:.65rem .85rem;font-weight:900}.button.secondary{background:white;color:var(--accent)}.button.danger{border-color:var(--bad);background:white;color:var(--bad)}form{display:grid;gap:.75rem}label{display:grid;gap:.3rem;color:var(--muted);font-size:.78rem;font-weight:900;text-transform:uppercase}input,textarea,select{width:100%;border:1px solid var(--line);border-radius:8px;background:white;color:var(--ink);padding:.65rem}textarea{min-height:110px;resize:vertical}.split{display:grid;grid-template-columns:1fr 1fr;gap:.75rem}.status{border:1px solid var(--line);border-radius:8px;background:#fbfbff;color:var(--muted);padding:.75rem;font-size:.84rem;margin-top:.75rem}.status.ok{border-color:#c4b5fd;color:#4c1d95}.status.err{border-color:#fecaca;color:#991b1b}@media(max-width:840px){.layout{grid-template-columns:1fr}nav{display:none}.split{grid-template-columns:1fr}}</style></head>
-<body><header><a href="/" class="brand"><span class="mark">PI</span><span>ProIdeaStore</span></a><nav><a href="/#dossiers">Dossiers</a><a href="/contributors/">Contributors</a><a href="/console/">Console</a><a href="https://freeideastore.online">FreeIdeaStore</a></nav></header><main class="shell"><div class="eyebrow">Dossier console</div><h1>Build an opportunity packet.</h1><div class="layout"><section class="panel"><form id="dossier-form"><label>Title<input name="title" required minlength="3" maxlength="140" placeholder="Example: ASX filings analyst"></label><label>Summary<textarea name="summary" required minlength="20" maxlength="1200" placeholder="What is the opportunity, who buys, and what is already known?"></textarea></label><div class="split"><label>Status<select name="status"><option>early</option><option>concept</option><option>diligence</option><option>prototype</option><option>ready</option></select></label><label>Readiness<input type="number" name="readiness" min="0" max="100" value="0"></label></div><label>Type<input name="type" maxlength="60" placeholder="research-saas, community-app, platform"></label><label>Buyer<input name="buyer" maxlength="500" placeholder="Who would pay or seriously engage?"></label><label>Evidence<textarea name="evidence" maxlength="800" placeholder="Sources, pilots, competitor research, prototypes, user interviews."></textarea></label><label>Missing<textarea name="missing" maxlength="800" placeholder="The biggest diligence gaps."></textarea></label><label>Assets<input name="assets" maxlength="500" placeholder="research memo, prototype, pitch deck"></label><label id="guest-label">Guest handle<input name="handle" maxlength="40" placeholder="only used when not signed in"></label><button class="button" type="submit">Create dossier</button></form><div id="status" class="status">Dossiers are attributed to your signed-in profile when available.</div></section><aside class="panel"><h2>Session</h2><p id="session" class="muted">Checking sign-in...</p><div class="auth" id="auth-actions"><a class="button" href="${AUTH_PREFIX}/start?provider=github&return_to=/console/">Sign in with GitHub</a><a class="button secondary" href="${AUTH_PREFIX}/start?provider=google&return_to=/console/">Sign in with Google</a></div></aside></div></main><script>
-const form=document.querySelector('#dossier-form');const statusBox=document.querySelector('#status');const sessionBox=document.querySelector('#session');const actions=document.querySelector('#auth-actions');const guestLabel=document.querySelector('#guest-label');let signedInUser=null;function setStatus(message,kind=''){statusBox.className='status '+kind;statusBox.textContent=message}async function loadSession(){const response=await fetch('${AUTH_PREFIX}/me').catch(()=>null);if(!response||!response.ok){sessionBox.textContent='Not signed in. You can test with a guest handle, but pro attribution should use GitHub or Google.';return}const data=await response.json();signedInUser=data.user;sessionBox.textContent='Signed in as @'+signedInUser.handle+' via '+signedInUser.provider+'.';guestLabel.style.display='none';actions.innerHTML='<button class="button danger" id="logout" type="button">Sign out</button>';document.querySelector('#logout').addEventListener('click',async()=>{await fetch('${AUTH_PREFIX}/logout',{method:'POST'});location.reload()})}form.addEventListener('submit',async(event)=>{event.preventDefault();const data=Object.fromEntries(new FormData(form).entries());data.assets=String(data.assets||'').split(',').map((item)=>item.trim()).filter(Boolean);const headers={'content-type':'application/json'};if(!signedInUser&&data.handle)headers['x-idea-handle']=data.handle;const response=await fetch('/api/dossiers',{method:'POST',headers,body:JSON.stringify(data)});const result=await response.json().catch(()=>({}));if(!response.ok)return setStatus(result.error||'Could not create dossier.','err');setStatus('Dossier created. Opening the public page...','ok');location.href='/dossiers/'+encodeURIComponent(result.dossier)+'/'});loadSession();
+*{box-sizing:border-box;margin:0;padding:0}:root{--accent:#6d28d9;--ruby:#be123c;--paper:#f8fafc;--panel:#fff;--ink:#171322;--muted:#667085;--line:#e4e7ec;--dark:#1f1737;--bad:#dc2626}body{background:var(--paper);color:var(--ink);font-family:Manrope,system-ui,sans-serif;line-height:1.5}a{color:inherit;text-decoration:none}button,input,textarea,select{font:inherit}header{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:1rem;border-bottom:1px solid var(--line);background:rgba(255,255,255,.94);padding:.7rem 1.25rem;backdrop-filter:blur(14px)}.brand{display:flex;align-items:center;gap:.6rem;font-weight:800}.mark{display:grid;height:34px;width:34px;place-items:center;border-radius:8px;background:var(--dark);color:#ddd6fe;font-weight:900;box-shadow:inset 0 -4px 0 rgba(190,18,60,.9)}.brand span:last-child{font-family:Fraunces,serif}nav{margin-left:auto;display:flex;align-items:center;gap:.9rem;color:var(--muted);font-size:.8rem;font-weight:800}.account-avatar{display:inline-grid;width:36px;height:36px;place-items:center;border:2px solid var(--line);border-radius:50%;overflow:hidden;background:white}.account-avatar img{width:100%;height:100%;object-fit:cover}.account-avatar span{display:grid;width:100%;height:100%;place-items:center;border-radius:50%;background:var(--dark);color:#ddd6fe;font-weight:900}.shell{max-width:1120px;margin:0 auto;padding:2rem 1.25rem}.eyebrow{color:var(--accent);font-size:.72rem;font-weight:900;letter-spacing:.12em;text-transform:uppercase}h1{font-family:Fraunces,serif;font-size:clamp(2.1rem,5vw,4.4rem);line-height:.98;margin:.45rem 0 1rem}.layout{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:1rem;align-items:start}.panel{border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:1rem;box-shadow:0 10px 22px rgba(16,24,40,.04)}.panel h2{font-size:1rem;margin-bottom:.6rem}.muted{color:var(--muted);font-size:.86rem}.auth{display:grid;gap:.5rem}.button{display:inline-flex;justify-content:center;align-items:center;border:1px solid var(--accent);border-radius:8px;background:var(--accent);color:white;cursor:pointer;padding:.65rem .85rem;font-weight:900}.button.secondary{background:white;color:var(--accent)}.button.danger{border-color:var(--bad);background:white;color:var(--bad)}form{display:grid;gap:.75rem}label{display:grid;gap:.3rem;color:var(--muted);font-size:.78rem;font-weight:900;text-transform:uppercase}input,textarea,select{width:100%;border:1px solid var(--line);border-radius:8px;background:white;color:var(--ink);padding:.65rem}textarea{min-height:110px;resize:vertical}.split{display:grid;grid-template-columns:1fr 1fr;gap:.75rem}.status{border:1px solid var(--line);border-radius:8px;background:#fbfbff;color:var(--muted);padding:.75rem;font-size:.84rem;margin-top:.75rem}.status.ok{border-color:#c4b5fd;color:#4c1d95}.status.err{border-color:#fecaca;color:#991b1b}@media(max-width:840px){.layout{grid-template-columns:1fr}nav{display:none}.split{grid-template-columns:1fr}}</style></head>
+<body><header><a href="/" class="brand"><span class="mark">PI</span><span>ProIdeaStore</span></a><nav><a href="/#dossiers">Dossiers</a><a href="/contributors/">Contributors</a><a href="/console/">Console</a><span id="account-slot"></span><a href="https://freeideastore.online">FreeIdeaStore</a></nav></header><main class="shell"><div class="eyebrow">Dossier console</div><h1>Build an opportunity packet.</h1><div class="layout"><section class="panel"><form id="dossier-form"><label>Title<input name="title" required minlength="3" maxlength="140" placeholder="Example: ASX filings analyst"></label><label>Summary<textarea name="summary" required minlength="20" maxlength="1200" placeholder="What is the opportunity, who buys, and what is already known?"></textarea></label><div class="split"><label>Status<select name="status"><option>early</option><option>concept</option><option>diligence</option><option>prototype</option><option>ready</option></select></label><label>Readiness<input type="number" name="readiness" min="0" max="100" value="0"></label></div><label>Type<input name="type" maxlength="60" placeholder="research-saas, community-app, platform"></label><label>Buyer<input name="buyer" maxlength="500" placeholder="Who would pay or seriously engage?"></label><label>Evidence<textarea name="evidence" maxlength="800" placeholder="Sources, pilots, competitor research, prototypes, user interviews."></textarea></label><label>Missing<textarea name="missing" maxlength="800" placeholder="The biggest diligence gaps."></textarea></label><label>Assets<input name="assets" maxlength="500" placeholder="research memo, prototype, pitch deck"></label><label id="guest-label">Guest handle<input name="handle" maxlength="40" placeholder="only used when not signed in"></label><button class="button" type="submit">Create dossier</button></form><div id="status" class="status">Dossiers are attributed to your signed-in profile when available.</div></section><aside class="panel"><h2>Session</h2><p id="session" class="muted">Checking sign-in...</p><div class="auth" id="auth-actions"><a class="button" href="${AUTH_PREFIX}/start?provider=github&return_to=/console/">Sign in with GitHub</a><a class="button secondary" href="${AUTH_PREFIX}/start?provider=google&return_to=/console/">Sign in with Google</a></div></aside></div></main><script>
+const form=document.querySelector('#dossier-form');const statusBox=document.querySelector('#status');const sessionBox=document.querySelector('#session');const actions=document.querySelector('#auth-actions');const guestLabel=document.querySelector('#guest-label');const accountSlot=document.querySelector('#account-slot');let signedInUser=null;function setStatus(message,kind=''){statusBox.className='status '+kind;statusBox.textContent=message}function initials(value){return String(value||'U').split(/[\\s-]+/).filter(Boolean).slice(0,2).map((part)=>part[0]).join('').toUpperCase()||'U'}function avatarLink(user){const inner=user.avatarUrl?'<img src="'+user.avatarUrl.replaceAll('"','&quot;')+'" alt="'+user.handle.replaceAll('"','&quot;')+'">':'<span>'+initials(user.displayName||user.handle)+'</span>';return '<a class="account-avatar" href="/profile/" aria-label="Profile">'+inner+'</a>'}async function loadSession(){const response=await fetch('${AUTH_PREFIX}/me').catch(()=>null);if(!response||!response.ok){sessionBox.textContent='Not signed in. You can test with a guest handle, but pro attribution should use GitHub or Google.';accountSlot.innerHTML='<a href="${AUTH_PREFIX}/start?provider=github&return_to=/console/">Sign in</a>';return}const data=await response.json();signedInUser=data.user;sessionBox.textContent='Signed in as @'+signedInUser.handle+' via '+signedInUser.provider+'.';accountSlot.innerHTML=avatarLink(signedInUser);guestLabel.style.display='none';actions.innerHTML='<button class="button danger" id="logout" type="button">Sign out</button>';document.querySelector('#logout').addEventListener('click',async()=>{await fetch('${AUTH_PREFIX}/logout',{method:'POST'});location.reload()})}form.addEventListener('submit',async(event)=>{event.preventDefault();const data=Object.fromEntries(new FormData(form).entries());data.assets=String(data.assets||'').split(',').map((item)=>item.trim()).filter(Boolean);const headers={'content-type':'application/json'};if(!signedInUser&&data.handle)headers['x-idea-handle']=data.handle;const response=await fetch('/api/dossiers',{method:'POST',headers,body:JSON.stringify(data)});const result=await response.json().catch(()=>({}));if(!response.ok)return setStatus(result.error||'Could not create dossier.','err');setStatus('Dossier created. Opening the public page...','ok');location.href='/dossiers/'+encodeURIComponent(result.dossier)+'/'});loadSession();
 </script></body></html>`, {
     headers: { ...SECURITY_HEADERS, 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'no-store' },
   });
@@ -788,9 +855,11 @@ export default {
     }
 
     if (url.pathname === '/profile' || url.pathname === '/profile/') {
-      const user = await authUserFor(request);
-      if (!user) return Response.redirect(`${url.origin}/console/#signin-required`, 302);
-      return Response.redirect(`${url.origin}/contributors/${user.handle}/`, 302);
+      try {
+        return await renderAccountPage(env, request);
+      } catch (error) {
+        return json({ error: error instanceof Error ? error.message : 'internal error' }, { status: 500 });
+      }
     }
 
     const contributorPageMatch = url.pathname.match(/^\/(?:contributors|users)\/([^/]+)\/?$/);

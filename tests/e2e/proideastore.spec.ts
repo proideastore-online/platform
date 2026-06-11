@@ -25,18 +25,24 @@ test('contributors and console pages are available', async ({ page }) => {
   await page.goto('/contributors/', { waitUntil: 'networkidle' });
 
   await expect(page.getByText('Contributor reputation.')).toBeVisible();
-  await expect(page.getByText('Diligence Lead')).toBeVisible();
-
-  await page.getByRole('link', { name: 'Diligence Lead' }).click();
-  await expect(page).toHaveURL(/\/contributors\/diligence-lead\/$/);
-  await expect(page.getByText('Profile strength')).toBeVisible();
-  await expect(page.getByText('Diligence mix')).toBeVisible();
+  await expect(page.getByText('Diligence Lead')).toHaveCount(0);
+  await expect(page.getByText('Builder Scout')).toHaveCount(0);
+  await expect(page.getByText('Investor Reader')).toHaveCount(0);
+  await expect(page.getByText('Idea Store Seeder')).toHaveCount(0);
 
   await page.goto('/console/');
 
   await expect(page.getByRole('heading', { name: 'Build an opportunity packet.' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Sign in with GitHub' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Create dossier' })).toBeVisible();
+});
+
+test('profile page offers account sign-in controls', async ({ page }) => {
+  await page.goto('/profile/');
+
+  await expect(page.getByRole('heading', { name: 'Profile' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Sign in with GitHub' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Sign in with Google' })).toBeVisible();
 });
 
 test('dossier detail page is readable on mobile', async ({ page, isMobile }) => {

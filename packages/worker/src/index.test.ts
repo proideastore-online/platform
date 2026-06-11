@@ -65,16 +65,16 @@ class FakeD1 {
     if (sql.includes('FROM dossiers d') && !sql.includes('WHERE d.id = ?')) {
       return new FakeStatement({ all: () => ({ results: Array.from(this.dossiers.values()) }) });
     }
-    if (sql.includes('FROM profiles p') && sql.includes('LEFT JOIN dossiers d') && !sql.includes('WHERE p.handle')) {
+    if (sql.includes('FROM profiles p') && sql.includes('LEFT JOIN dossiers d') && !sql.includes('p.handle = ?')) {
       return new FakeStatement({
         all: () => ({
           results: [
             {
-              id: 'profile-diligence-lead',
-              handle: 'diligence-lead',
-              display_name: 'Diligence Lead',
+              id: 'profile-serge-the-dev',
+              handle: 'serge-the-dev',
+              display_name: 'Serge The Dev',
               role: 'curator',
-              reputation: 220,
+              reputation: 20,
               dossier_count: 1,
               note_count: 4,
               interest_count: 1,
@@ -87,17 +87,19 @@ class FakeD1 {
       return new FakeStatement({
         first: ([handle]) =>
           handle === 'diligence-lead'
-            ? {
-                id: 'profile-diligence-lead',
-                handle: 'diligence-lead',
-                display_name: 'Diligence Lead',
-                role: 'curator',
-                reputation: 220,
-                dossier_count: 1,
-                note_count: 4,
-                interest_count: 1,
-              }
-            : null,
+            ? null
+            : handle === 'serge-the-dev'
+              ? {
+                  id: 'profile-serge-the-dev',
+                  handle: 'serge-the-dev',
+                  display_name: 'Serge The Dev',
+                  role: 'curator',
+                  reputation: 20,
+                  dossier_count: 1,
+                  note_count: 4,
+                  interest_count: 1,
+                }
+              : null,
       });
     }
     if (sql.includes('FROM diligence_notes n JOIN profiles')) {
@@ -108,8 +110,8 @@ class FakeD1 {
               kind: 'risk',
               body: 'The investable wedge is citation-backed research workflow.',
               created_at: '2026-06-10 00:00:00',
-              handle: 'diligence-lead',
-              display_name: 'Diligence Lead',
+              handle: 'serge-the-dev',
+              display_name: 'Serge The Dev',
               role: 'curator',
             },
           ],
@@ -168,21 +170,39 @@ describe('ProIdeaStore worker', () => {
 
     expect(contributors.status).toBe(200);
     expect(contributorHtml).toContain('Contributor reputation.');
-    expect(contributorHtml).toContain('Diligence Lead');
+    expect(contributorHtml).toContain('Serge The Dev');
+    expect(contributorHtml).not.toContain('Diligence Lead');
     expect(consolePage.status).toBe(200);
     expect(consoleHtml).toContain('Create dossier');
+    expect(consoleHtml).toContain('id="account-slot"');
     expect(consoleHtml).toContain('Sign in with GitHub');
   });
 
-  it('renders rich user profile pages with diligence sections', async () => {
-    const response = await worker.fetch(new Request('https://pis.test/users/diligence-lead/'), env());
+  it('renders signed-out account profile controls', async () => {
+    const response = await worker.fetch(new Request('https://pis.test/profile/'), env());
     const html = await response.text();
 
     expect(response.status).toBe(200);
-    expect(html).toContain('Diligence Lead');
+    expect(html).toContain('Sign in to view your profile.');
+    expect(html).toContain('Sign in with GitHub');
+    expect(html).toContain('Sign in with Google');
+  });
+
+  it('renders rich user profile pages with diligence sections', async () => {
+    const response = await worker.fetch(new Request('https://pis.test/users/serge-the-dev/'), env());
+    const html = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(html).toContain('Serge The Dev');
     expect(html).toContain('Profile strength');
     expect(html).toContain('Diligence mix');
     expect(html).toContain('Best fit');
+  });
+
+  it('does not expose removed seed contributor profiles', async () => {
+    const response = await worker.fetch(new Request('https://pis.test/users/diligence-lead/'), env());
+
+    expect(response.status).toBe(404);
   });
 
   it('starts OAuth through the ProAppStore auth API with a nonce cookie', async () => {
