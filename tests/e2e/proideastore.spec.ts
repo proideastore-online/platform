@@ -47,6 +47,12 @@ test('about and docs pages explain the portal', async ({ page }) => {
   await page.goto('/docs/');
   await expect(page.getByRole('heading', { name: 'ProIdeaStore guide.' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Dossier contents' })).toBeVisible();
+
+  await page.goto('/docs/#dossier');
+  await expect(page.locator('.toc a.active')).toHaveText('Dossier');
+  await page.locator('.toc').getByRole('link', { name: 'Contribute' }).click();
+  await expect(page).toHaveURL(/\/docs\/#contribute$/);
+  await expect(page.locator('.toc a.active')).toHaveText('Contribute');
 });
 
 test('profile page offers account sign-in controls', async ({ page }) => {
